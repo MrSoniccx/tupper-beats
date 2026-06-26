@@ -1,0 +1,78 @@
+{
+  "name": "tupper-beats",
+  "version": "1.0.0",
+  "description": "🎁 Un regalo mágico de cumpleaños para Tupper — Spotify + Hogwarts",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .",
+    "build": "vite build && electron-builder",
+    "build:vite": "vite build",
+    "preview": "vite preview",
+    "dist": "vite build && electron-builder --win --publish=never",
+    "release": "vite build && electron-builder --publish=always",
+    "release:win": "vite build && electron-builder --win --publish=always"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.4",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.9",
+    "framer-motion": "^11.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-router-dom": "^6.22.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.17",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.1.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.mrsoniccx.tupperbeats",
+    "productName": "TupperBeats",
+    "copyright": "Hecho con amor por MrSoniccx para Tupper 🎂✨",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/icon.icns"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "MrSoniccx",
+        "repo": "tupper-beats",
+        "releaseType": "release"
+      }
+    ],
+    "extraResources": []
+  }
+}

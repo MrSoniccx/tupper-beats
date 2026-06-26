@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fondo transparente para que la ventana de notificación no muestre cuadro negro */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+  background: transparent;
+}
+
+/* Scrollbar personalizada */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(201,168,76,0.7); }
+
+/* Región draggable para la barra de título personalizada */
+.drag-region { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+
+/* Fuente mágica de Hogwarts */
+@import url('https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Textura de pergamino (CSS puro como fallback) */
+.parchment-bg {
+  background-color: #F5E6C8;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 28px,
+      rgba(139,90,43,0.07) 28px,
+      rgba(139,90,43,0.07) 29px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 28px,
+      rgba(139,90,43,0.03) 28px,
+      rgba(139,90,43,0.03) 29px
+    );
+}
+
+/* Borde dorado animado */
+.gold-border {
+  border: 1px solid rgba(201,168,76,0.6);
+  box-shadow: 0 0 8px rgba(201,168,76,0.3), inset 0 0 8px rgba(201,168,76,0.05);
+}
+
+.gold-border:hover {
+  border-color: rgba(201,168,76,0.9);
+  box-shadow: 0 0 16px rgba(201,168,76,0.5), inset 0 0 12px rgba(201,168,76,0.1);
+  transition: all 0.3s ease;
+}
+
+/* Partícula mágica */
+.magic-particle {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+  animation: particle 6s linear infinite;
+}
+
+@keyframes particle {
+  0%   { transform: translateY(100%) rotate(0deg); opacity: 0; }
+  10%  { opacity: 0.8; }
+  90%  { opacity: 0.8; }
+  100% { transform: translateY(-10px) rotate(720deg); opacity: 0; }
+}

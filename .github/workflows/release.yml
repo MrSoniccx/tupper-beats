@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'          # Se activa con tags tipo v1.0.0, v1.1.0, etc.
+
+permissions:
+  contents: write    # Necesario para crear GitHub Releases
+
+jobs:
+  release:
+    runs-on: windows-latest   # Build nativo para Windows
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Build y publicar release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release:win
+
+      - name: Subir artefactos de build (respaldo)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: dist-electron
+          path: dist-electron/
+          retention-days: 7
