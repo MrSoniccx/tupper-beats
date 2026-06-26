@@ -162,6 +162,62 @@ export function IconInfo({ size = 16, className = '' }) {
   )
 }
 
+export function IconShuffle({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <path fillRule="evenodd" d="M15.22 3.22a.75.75 0 0 1 1.06 0l3 3a.75.75 0 0 1 0 1.06l-3 3a.75.75 0 1 1-1.06-1.06l1.72-1.72H14a3.75 3.75 0 0 0-2.652 1.098L8.836 11.11a5.25 5.25 0 0 1-3.712 1.538H3a.75.75 0 0 1 0-1.5h2.124a3.75 3.75 0 0 0 2.652-1.098l2.512-2.512A5.25 5.25 0 0 1 14 6h2.94L15.22 4.28a.75.75 0 0 1 0-1.06zm0 13.5a.75.75 0 0 1 1.06 0l3 3a.75.75 0 0 1 0 1.06l-3 3a.75.75 0 1 1-1.06-1.06l1.72-1.72H14a5.25 5.25 0 0 1-3.716-1.541l-2.512-2.512A3.75 3.75 0 0 0 5.124 15.75H3a.75.75 0 0 1 0-1.5h2.124a5.25 5.25 0 0 1 3.716 1.541l2.512 2.512A3.75 3.75 0 0 0 14 19.5h2.94l-1.72-1.72a.75.75 0 0 1 0-1.06z" />
+    </svg>
+  )
+}
+export function IconRepeatContext({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <path fillRule="evenodd" d="M2.25 9a.75.75 0 0 1 .75-.75h14.25l-2.47-2.47a.75.75 0 1 1 1.06-1.06l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 0 1-1.06-1.06L17.25 9.75H3A.75.75 0 0 1 2.25 9zm19.5 6a.75.75 0 0 1-.75.75H6.75l2.47 2.47a.75.75 0 1 1-1.06 1.06l-3.75-3.75a.75.75 0 0 1 0-1.06l3.75-3.75a.75.75 0 0 1 1.06 1.06L6.75 14.25H21a.75.75 0 0 1 .75.75z" />
+    </svg>
+  )
+}
+
+export function IconRepeatOne({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <path fillRule="evenodd" d="M2.25 9a.75.75 0 0 1 .75-.75h14.25l-2.47-2.47a.75.75 0 1 1 1.06-1.06l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 0 1-1.06-1.06L17.25 9.75H3A.75.75 0 0 1 2.25 9zm19.5 6a.75.75 0 0 1-.75.75H6.75l2.47 2.47a.75.75 0 1 1-1.06 1.06l-3.75-3.75a.75.75 0 0 1 0-1.06l3.75-3.75a.75.75 0 0 1 1.06 1.06L6.75 14.25H21a.75.75 0 0 1 .75.75z M12 10.5a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0v-1.5h-.75a.75.75 0 0 1 0-1.5H12z" />
+    </svg>
+  )
+}
+
+export function IconSearch({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+export function IconPower({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </svg>
+  )
+}
+
+export function IconQueueAdd({ size = 16, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <path d="M3 18h3m0 0v3m0-3v-3" />
+    </svg>
+  )
+}
+
+
+
 // Ícono de Spotify (wordmark simplificado)
 export function IconSpotify({ size = 16, className = '' }) {
   return (

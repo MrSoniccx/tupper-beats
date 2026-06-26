@@ -1,11 +1,11 @@
 import { create } from 'zustand'
 
 const useAppStore = create((set, get) => ({
-  // ─── Auth ───────────────────────────────────────────────────────────────
+  // Auth
   isAuthenticated: false,
   setAuthenticated: (val) => set({ isAuthenticated: val }),
 
-  // ─── Track actual ───────────────────────────────────────────────────────
+  // Track actual
   currentTrack: null,
   setCurrentTrack: (track) => set({ currentTrack: track }),
 
@@ -15,34 +15,34 @@ const useAppStore = create((set, get) => ({
   progress: 0,
   setProgress: (val) => set({ progress: val }),
 
-  // ─── Configuración (sincronizada con electron-store) ────────────────────
+  // Configuracion (sincronizada con electron-store)
   activeTheme: 'hogwarts',
   setActiveTheme: async (theme) => {
     set({ activeTheme: theme })
     await window.electronAPI?.setActiveTheme(theme)
   },
 
-  notificationMode: 'normal',       // 'always' | 'normal' | 'disabled'
+  notificationMode: 'normal',
   setNotificationMode: async (mode) => {
     set({ notificationMode: mode })
     await window.electronAPI?.storeSet('notificationMode', mode)
     window.electronAPI?.updateNotificationSettings({ mode })
   },
 
-  notificationPosition: 'bottom-right', // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  notificationPosition: 'bottom-right',
   setNotificationPosition: async (position) => {
     set({ notificationPosition: position })
     await window.electronAPI?.storeSet('notificationPosition', position)
     window.electronAPI?.updateNotificationSettings({ position })
   },
 
-  notificationAutoHide: 10, // segundos (0 = nunca)
+  notificationAutoHide: 10,
   setNotificationAutoHide: async (seconds) => {
     set({ notificationAutoHide: seconds })
     await window.electronAPI?.storeSet('notificationAutoHide', seconds)
   },
 
-  // ─── Carga inicial desde electron-store ─────────────────────────────────
+  // Carga inicial desde electron-store
   loadSettings: async () => {
     if (!window.electronAPI) return
     const [theme, mode, position, autoHide, hasToken] = await Promise.all([
@@ -61,7 +61,19 @@ const useAppStore = create((set, get) => ({
     })
   },
 
-  // ─── Spotify Client ID (guardado por el usuario) ─────────────────────────
+  // Volumen (sincronizado entre VolumeSliders del mismo proceso)
+  volume: 70,
+  setVolumeState: (vol) => set({ volume: vol }),
+  muted: false,
+  setMutedState: (muted) => set({ muted }),
+
+  // Shuffle / Repeat (persiste mientras la app esta abierta)
+  shuffle: false,
+  setShuffle: (val) => set({ shuffle: val }),
+  repeatMode: 'off', // 'off' | 'context' | 'track'
+  setRepeatMode: (val) => set({ repeatMode: val }),
+
+  // Spotify Client ID (guardado por el usuario)
   spotifyClientId: '',
   setSpotifyClientId: async (id) => {
     set({ spotifyClientId: id })

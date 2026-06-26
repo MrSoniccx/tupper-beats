@@ -3,7 +3,7 @@ const path = require('path')
 const Store = require('electron-store')
 const log  = require('electron-log')
 const { autoUpdater } = require('electron-updater')
-const { startSpotifyPolling, stopSpotifyPolling, getQueue, getSavedTracks, getSavedAlbums, playTrack, getUserPlaylists, getPlaylistTracks, getAlbumTracks } = require('./spotify')
+const { startSpotifyPolling, stopSpotifyPolling, getQueue, getSavedTracks, getSavedAlbums, playTrack, getUserPlaylists, getPlaylistTracks, getAlbumTracks, searchTracks, setShuffleState, setRepeatState, addToQueue } = require('./spotify')
 
 const store = new Store()
 const isDev = process.env.NODE_ENV === 'development'
@@ -91,7 +91,8 @@ function updateNotificationLevel() {
 
 // ─── Tray ────────────────────────────────────────────────────────────────────
 function createTray() {
-  const iconPath = path.join(__dirname, '../public/tray-icon.png')
+  // Usar icon.png (tray-icon.svg no es soportado por nativeImage en Windows)
+  const iconPath = path.join(__dirname, '../public/icon.png')
   let trayIcon
   try {
     trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
@@ -329,3 +330,19 @@ ipcMain.handle('spotify-play-track',          (_, uri)     => playTrack(store, u
 ipcMain.handle('spotify-get-playlists',       (_, offset)  => getUserPlaylists(store, offset || 0))
 ipcMain.handle('spotify-get-playlist-tracks', (_, id, off) => getPlaylistTracks(store, id, off || 0))
 ipcMain.handle('spotify-get-album-tracks',    (_, id, off) => getAlbumTracks(store, id, off || 0))
+ipcMain.handle('spotify-search-tracks',       (_, q)       => searchTracks(store, q))
+ipcMain.handle('spotify-set-shuffle',         (_, state)   => setShuffleState(store, state))
+ipcMain.handle('spotify-set-repeat',          (_, state)   => setRepeatState(store, state))
+ipcMain.handle('spotify-add-to-queue',        (_, uri)     => addToQueue(store, uri))
+
+// IPC: cerrar app completamente
+ipcMain.on('app-quit', () => app.quit())
+
+// IPC: sincronizar volumen entre ventanas
+ipcMain.on('volume-changed', (event, vol) => {
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
+      win.webContents.send('volume-changed', vol)
+    }
+  })
+})

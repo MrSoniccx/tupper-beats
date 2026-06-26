@@ -1,6 +1,6 @@
 {
   "name": "tupper-beats",
-  "version": "1.1.2",
+  "version": "1.1.4",
   "description": "🎁 Un regalo mágico de cumpleaños para Tupper — Spotify + Hogwarts",
   "main": "electron/main.js",
   "scripts": {
@@ -67,10 +67,12 @@
       "icon": "public/icon.icns"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "TupperBeats"
     },
     "files": [
       "dist/**/*",

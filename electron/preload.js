@@ -35,10 +35,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlaylists:      (offset)     => ipcRenderer.invoke('spotify-get-playlists', offset),
   getPlaylistTracks: (id, offset) => ipcRenderer.invoke('spotify-get-playlist-tracks', id, offset),
   getAlbumTracks:    (id, offset) => ipcRenderer.invoke('spotify-get-album-tracks', id, offset),
+  searchTracks:      (query)      => ipcRenderer.invoke('spotify-search-tracks', query),
+  setShuffle:        (state)      => ipcRenderer.invoke('spotify-set-shuffle', state),
+  setRepeat:         (state)      => ipcRenderer.invoke('spotify-set-repeat', state),
+  addToQueue:        (uri)        => ipcRenderer.invoke('spotify-add-to-queue', uri),
+  quitApp:           ()           => ipcRenderer.send('app-quit'),
 
   onTrackChanged:  (cb) => ipcRenderer.on('track-changed',             (_, data) => cb(data)),
   onOAuthCallback: (cb) => ipcRenderer.on('oauth-callback',            (_, url)  => cb(url)),
   onPrepareHide:   (cb) => ipcRenderer.on('prepare-hide-notification', ()        => cb()),
+  onVolumeChanged: (cb) => ipcRenderer.on('volume-changed',            (_, vol)  => cb(vol)),
+
+  broadcastVolume: (vol) => ipcRenderer.send('volume-changed', vol),
 
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
 })

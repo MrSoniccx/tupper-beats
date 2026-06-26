@@ -10,7 +10,15 @@ import { useSpotifyControls } from '../components/useSpotifyControls'
 import {
   IconMusic, IconBell, IconPalette, IconSettings, IconInfo,
   IconClose, IconMinimize, IconMaximize, IconRefresh, IconCheck, IconLogout,
+  IconShuffle, IconRepeatContext, IconRepeatOne, IconSearch, IconPower, IconQueueAdd,
 } from '../components/Icons'
+import {
+  fetchQueue, fetchPlaylistTracks, fetchSavedTracks, fetchSavedAlbums, fetchPlaylists,
+  fetchAlbumTracks, searchSpotify, fetchPlayerState,
+  setShuffle as apiSetShuffle, setRepeat as apiSetRepeat,
+  addToQueue as apiAddToQueue,
+} from '../lib/spotifyAPI'
+import tupperMessages from '../tupper-messages.json'
 
 // ─── Velas flotantes de fondo (app) ──────────────────────────────────────────
 const APP_CANDLES = [
@@ -145,6 +153,15 @@ function Card({ title, icon: Icon, children, className = '' }) {
 // ─── Track row ────────────────────────────────────────────────────────────────
 function TrackRow({ track, index, onPlay, contextUri }) {
   const [hovered, setHovered] = useState(false)
+  const [queued,  setQueued]  = useState(false) // feedback visual
+
+  const handleAddToQueue = async (e) => {
+    e.stopPropagation()
+    await apiAddToQueue(track.uri)
+    setQueued(true)
+    setTimeout(() => setQueued(false), 1800)
+  }
+
   return (
     <motion.div
       onMouseEnter={() => setHovered(true)}
@@ -173,9 +190,30 @@ function TrackRow({ track, index, onPlay, contextUri }) {
         <p style={{ fontSize: 12, color: 'rgba(245,230,200,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{track.name}</p>
         <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{track.artist}</p>
       </div>
-      <p style={{ fontSize: 10, color: 'rgba(245,230,200,0.25)', flexShrink: 0 }}>
+      <p style={{ fontSize: 10, color: 'rgba(245,230,200,0.25)', flexShrink: 0, marginRight: 2 }}>
         {track.duration ? `${Math.floor(track.duration/60000)}:${String(Math.floor((track.duration%60000)/1000)).padStart(2,'0')}` : ''}
       </p>
+      {/* Botón agregar a cola — solo visible en hover */}
+      {hovered && (
+        <motion.button
+          initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
+          onClick={handleAddToQueue}
+          className="no-drag"
+          title="Agregar a cola"
+          style={{
+            flexShrink: 0, background: queued ? 'rgba(74,222,128,0.15)' : 'rgba(201,168,76,0.1)',
+            border: `1px solid ${queued ? 'rgba(74,222,128,0.4)' : 'rgba(201,168,76,0.25)'}`,
+            borderRadius: 6, padding: '3px 5px', cursor: 'pointer',
+            color: queued ? '#4ade80' : 'rgba(201,168,76,0.8)',
+            display: 'flex', alignItems: 'center', transition: 'all 0.2s',
+          }}
+        >
+          {queued
+            ? <IconCheck size={12} />
+            : <IconQueueAdd size={12} />
+          }
+        </motion.button>
+      )}
     </motion.div>
   )
 }
@@ -252,7 +290,9 @@ function PlaylistRow({ playlist, onSelect, onPlay }) {
       }
       <div style={{ flex: 1, minWidth: 0 }} onClick={() => onSelect(playlist)}>
         <p style={{ fontSize: 12, color: 'rgba(245,230,200,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{playlist.name}</p>
-        <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.4)' }}>{playlist.total} canciones</p>
+        <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.4)' }}>
+          {playlist.total > 0 ? `${playlist.total} canciones` : 'Ver canciones →'}
+        </p>
       </div>
       {/* Botón de reproducir directo */}
       {hovered && (
@@ -265,7 +305,7 @@ function PlaylistRow({ playlist, onSelect, onPlay }) {
             borderRadius: 6, padding: '3px 8px', fontSize: 11,
             color: '#F0C040', cursor: 'pointer', flexShrink: 0,
           }}
-        >▶ Reproducir</motion.button>
+        >▶ Play</motion.button>
       )}
       <motion.button
         onClick={() => onSelect(playlist)}
@@ -322,60 +362,277 @@ function SearchInput({ value, onChange, placeholder = 'Buscar...' }) {
   )
 }
 
+// ─── Acordeón colapsable ─────────────────────────────────────────────────────
+function Accordion({ title, icon, defaultOpen = true, children, badge }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div style={{
+      border: '1px solid rgba(201,168,76,0.12)',
+      borderRadius: 10,
+      background: 'rgba(255,255,255,0.022)',
+      overflow: 'hidden',
+    }}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="no-drag"
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+          padding: '9px 14px', cursor: 'pointer',
+          background: 'transparent', border: 'none',
+          color: 'rgba(201,168,76,0.75)', textAlign: 'left',
+        }}
+      >
+        <span style={{ fontSize: 10, opacity: 0.5, transition: 'transform 0.2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', display: 'inline-block' }}>▼</span>
+        <span style={{ fontSize: 12, fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', fontFamily: 'serif', flex: 1 }}>{title}</span>
+        {badge && <span style={{ fontSize: 10, color: 'rgba(201,168,76,0.4)' }}>{badge}</span>}
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div style={{ padding: '0 14px 14px' }}>{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ─── Carrusel "Para Tupper" ───────────────────────────────────────────────────
+function TupperCarousel({ messages }) {
+  const [idx, setIdx] = useState(0)
+  const [dir, setDir] = useState(1)
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setDir(1)
+      setIdx(i => (i + 1) % messages.length)
+    }, 5000)
+    return () => clearInterval(t)
+  }, [messages.length])
+
+  const msg = messages[idx]
+
+  return (
+    <motion.div
+      animate={{ boxShadow: ['0 0 10px rgba(201,168,76,0.1)', '0 0 22px rgba(201,168,76,0.28)', '0 0 10px rgba(201,168,76,0.1)'] }}
+      transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+      style={{ borderRadius: 12, padding: '16px 16px 14px', background: 'linear-gradient(135deg, rgba(116,0,1,0.18), rgba(201,168,76,0.1))', border: '1px solid rgba(201,168,76,0.22)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}
+    >
+      <p style={{ fontFamily: '"UnifrakturMaguntia", cursive', fontSize: 20, color: '#C9A84C', marginBottom: 8, textShadow: '0 0 15px rgba(201,168,76,0.5)' }}>Para Tupper</p>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={idx}
+          initial={{ opacity: 0, x: 30 * dir }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -30 * dir }}
+          transition={{ duration: 0.35, ease: 'easeInOut' }}
+        >
+          {msg.emoji && <p style={{ fontSize: 18, marginBottom: 6 }}>{msg.emoji}</p>}
+          <p style={{ fontSize: 12, color: 'rgba(245,230,200,0.65)', lineHeight: 1.7, fontStyle: msg.text.startsWith('"') ? 'italic' : 'normal' }}>
+            {msg.text}
+          </p>
+          {msg.from && (
+            <p style={{ marginTop: 8, fontSize: 11, color: 'rgba(201,168,76,0.55)' }}>— {msg.from}</p>
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Dots de navegación */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 5, marginTop: 10 }}>
+        {messages.map((_, i) => (
+          <button
+            key={i}
+            onClick={() => { setDir(i > idx ? 1 : -1); setIdx(i) }}
+            className="no-drag"
+            style={{
+              width: i === idx ? 16 : 5, height: 5, borderRadius: 3,
+              background: i === idx ? '#C9A84C' : 'rgba(201,168,76,0.25)',
+              border: 'none', cursor: 'pointer', padding: 0,
+              transition: 'all 0.3s ease',
+            }}
+          />
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
+// ─── Controles de shuffle/repeat ──────────────────────────────────────────────
+function PlaybackModeControls() {
+  // Lee del store de Zustand (persiste mientras la app está abierta)
+  const { shuffle, setShuffle, repeatMode: repeat, setRepeatMode: setRepeat } = useAppStore()
+
+  // Al montar: leer el estado real de Spotify para sincronizar
+  useEffect(() => {
+    fetchPlayerState().then(state => {
+      if (state) {
+        setShuffle(state.shuffle)
+        setRepeat(state.repeat)
+      }
+    })
+  }, [])
+
+  const toggleShuffle = async () => {
+    const next = !shuffle
+    setShuffle(next)
+    await apiSetShuffle(next)
+  }
+
+  const cycleRepeat = async () => {
+    const next = repeat === 'off' ? 'context' : repeat === 'context' ? 'track' : 'off'
+    setRepeat(next)
+    await apiSetRepeat(next)
+  }
+
+  const btnBase = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '5px 10px', borderRadius: 8, cursor: 'pointer', gap: 5,
+    fontSize: 11, fontWeight: 500, transition: 'all 0.15s',
+    border: '1px solid transparent',
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      {/* Shuffle */}
+      <motion.button onClick={toggleShuffle} className="no-drag"
+        style={{
+          ...btnBase,
+          color: shuffle ? '#F0C040' : 'rgba(245,230,200,0.35)',
+          background: shuffle ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
+          borderColor: shuffle ? 'rgba(201,168,76,0.35)' : 'rgba(255,255,255,0.06)',
+        }}
+        whileTap={{ scale: 0.93 }} title="Orden aleatorio"
+      >
+        <IconShuffle size={13} />
+        <span>Aleatorio</span>
+      </motion.button>
+
+      {/* Repeat */}
+      <motion.button onClick={cycleRepeat} className="no-drag"
+        style={{
+          ...btnBase,
+          color: repeat !== 'off' ? '#F0C040' : 'rgba(245,230,200,0.35)',
+          background: repeat !== 'off' ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
+          borderColor: repeat !== 'off' ? 'rgba(201,168,76,0.35)' : 'rgba(255,255,255,0.06)',
+        }}
+        whileTap={{ scale: 0.93 }}
+        title={repeat === 'off' ? 'Sin repetir' : repeat === 'context' ? 'Repitiendo playlist' : 'Repitiendo canción'}
+      >
+        {repeat === 'track'
+          ? <IconRepeatOne size={13} />
+          : <IconRepeatContext size={13} />
+        }
+        <span>
+          {repeat === 'off' ? 'Repetir' : repeat === 'context' ? 'Playlist' : 'Canción'}
+        </span>
+      </motion.button>
+    </div>
+  )
+}
+
 // ─── Sección: Reproductor con tabs ───────────────────────────────────────────
 function PlayerSection({ track }) {
   const { playUri, playTrackInContext } = useSpotifyControls()
 
   const [tab,            setTab]            = useState('now')
   const [savedTracks,    setSavedTracks]    = useState(null)
+  const [tracksOffset,   setTracksOffset]   = useState(0)
+  const [tracksTotal,    setTracksTotal]    = useState(0)
+  const [tracksLoadMore, setTracksLoadMore] = useState(false)
   const [savedAlbums,    setSavedAlbums]    = useState(null)
   const [queue,          setQueue]          = useState(null)
   const [playlists,      setPlaylists]      = useState(null)
   const [selectedPlaylist, setSelectedPlaylist] = useState(null)
   const [playlistTracks,   setPlaylistTracks]   = useState(null)
-  const [selectedAlbum,  setSelectedAlbum]  = useState(null)  // { id, uri, name, imageUrl, artist }
+  const [playlistError,    setPlaylistError]    = useState(false)
+  const [selectedAlbum,  setSelectedAlbum]  = useState(null)
   const [albumTracks,    setAlbumTracks]    = useState(null)
   const [loading,        setLoading]        = useState(false)
   const [query,          setQuery]          = useState('')
+  // Search
+  const [searchQuery,    setSearchQuery]    = useState('')
+  const [searchResults,  setSearchResults]  = useState(null)
+  const [searchLoading,  setSearchLoading]  = useState(false)
+  const searchTimerRef = useRef(null)
 
-  // Al cambiar canción → resetear todo a "unloaded"
+  // Referencia al tab activo (para usarla dentro de efectos asíncronos)
+  const tabRef = useRef(tab)
+  useEffect(() => { tabRef.current = tab }, [tab])
+
+  // Al cambiar canción → SOLO resetear la cola (no la biblioteca)
+  // Esto evita que todo desaparezca cuando cambia la canción mientras se navega
   useEffect(() => {
-    setSavedTracks(null)
-    setSavedAlbums(null)
-    setQueue(null)
-    setPlaylists(null)
-    setSelectedPlaylist(null)
-    setPlaylistTracks(null)
-    setSelectedAlbum(null)
-    setAlbumTracks(null)
-    setQuery('')
+    if (!track?.id) return
+    setQueue(null) // La cola cambia con la canción; el resto de datos es estable
   }, [track?.id])
 
-  // Siempre fetch al cambiar tab (sin cache)
+  // Auto-cargar cola cuando tab='now' y queue=null (incluye cambio de canción)
+  useEffect(() => {
+    if (tab !== 'now' || queue !== null) return
+    let cancelled = false
+    setLoading(true)
+    fetchQueue().then(res => {
+      if (cancelled) return
+      if (res?.queue) {
+        setQueue(res.queue.slice(0, 30).map(i => ({
+          uri: i.uri, name: i.name,
+          artist: i.artists?.map(a => a.name).join(', ') || '',
+          albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
+          duration: i.duration_ms,
+        })))
+      } else {
+        setQueue([])
+      }
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [tab, queue])
+
+  // Cambiar tab — cargar datos solo si no han sido cargados antes (o si es 'now')
   const loadTab = useCallback(async (t) => {
     setTab(t)
     setSelectedPlaylist(null)
     setPlaylistTracks(null)
+    setPlaylistError(false)
     setSelectedAlbum(null)
     setAlbumTracks(null)
     setQuery('')
 
-    if (t === 'tracks') {
+    // La cola siempre se recarga al entrar al tab (el auto-load effect la maneja)
+    if (t === 'now') {
+      setQueue(null) // Trigger auto-load effect
+      return
+    }
+    if (t === 'tracks' && !savedTracks) {
       setLoading(true)
-      setSavedTracks(null)
-      const res = await window.electronAPI?.getSavedTracks(0)
-      if (res?.items) setSavedTracks(res.items.filter(i => i.track).map(i => ({
-        uri: i.track.uri, name: i.track.name,
-        artist: i.track.artists.map(a => a.name).join(', '),
-        albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
-        duration: i.track.duration_ms,
-      })))
+      setTracksOffset(0)
+      setTracksTotal(0)
+      const res = await fetchSavedTracks(0)
+      if (res?.items) {
+        setSavedTracks(res.items.filter(i => i.track).map(i => ({
+          uri: i.track.uri, name: i.track.name,
+          artist: i.track.artists.map(a => a.name).join(', '),
+          albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
+          duration: i.track.duration_ms,
+        })))
+        setTracksOffset(res.items.length)
+        setTracksTotal(res.total || 0)
+      } else {
+        setSavedTracks([])
+      }
       setLoading(false)
     }
-    if (t === 'albums') {
+    if (t === 'albums' && !savedAlbums) {
       setLoading(true)
-      setSavedAlbums(null)
-      const res = await window.electronAPI?.getSavedAlbums(0)
+      const res = await fetchSavedAlbums(0)
       if (res?.items) setSavedAlbums(res.items.map(i => ({
         id: i.album.id,
         uri: i.album.uri, name: i.album.name,
@@ -384,41 +641,48 @@ function PlayerSection({ track }) {
         imageUrl: i.album.images?.[1]?.url || i.album.images?.[0]?.url || '',
         total: i.album.total_tracks || 0,
       })))
+      else setSavedAlbums([])
       setLoading(false)
     }
-    if (t === 'queue') {
+    if (t === 'playlists' && !playlists) {
       setLoading(true)
-      setQueue(null)
-      const res = await window.electronAPI?.getQueue()
-      if (res?.queue) setQueue(res.queue.slice(0, 30).map(i => ({
-        uri: i.uri, name: i.name,
-        artist: i.artists?.map(a => a.name).join(', ') || '',
-        albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
-        duration: i.duration_ms,
-      })))
-      setLoading(false)
-    }
-    if (t === 'playlists') {
-      setLoading(true)
-      setPlaylists(null)
-      const res = await window.electronAPI?.getPlaylists(0)
+      const res = await fetchPlaylists(0)
       if (res?.items) setPlaylists(res.items.map(p => ({
         id: p.id, uri: p.uri, name: p.name,
         total: p.tracks?.total || 0,
         imageUrl: p.images?.[0]?.url || '',
       })))
+      else setPlaylists([])
       setLoading(false)
     }
-  }, [])
+  }, [savedTracks, savedAlbums, playlists])
+
+  const loadMoreTracks = useCallback(async () => {
+    if (tracksLoadMore) return
+    setTracksLoadMore(true)
+    const res = await fetchSavedTracks(tracksOffset)
+    if (res?.items) {
+      const newTracks = res.items.filter(i => i.track).map(i => ({
+        uri: i.track.uri, name: i.track.name,
+        artist: i.track.artists.map(a => a.name).join(', '),
+        albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
+        duration: i.track.duration_ms,
+      }))
+      setSavedTracks(prev => [...(prev || []), ...newTracks])
+      setTracksOffset(prev => prev + res.items.length)
+    }
+    setTracksLoadMore(false)
+  }, [tracksOffset, tracksLoadMore])
 
   const openPlaylist = useCallback(async (playlist) => {
     setSelectedPlaylist(playlist)
     setPlaylistTracks(null)
+    setPlaylistError(false)
     setQuery('')
     setLoading(true)
-    const res = await window.electronAPI?.getPlaylistTracks(playlist.id, 0)
-    if (res?.items) setPlaylistTracks(
-      res.items
+    const res = await fetchPlaylistTracks(playlist.id, 0)
+    if (res?.items) {
+      const tracks = res.items
         .filter(i => i.track && i.track.uri)
         .map(i => ({
           uri: i.track.uri, name: i.track.name,
@@ -426,7 +690,12 @@ function PlayerSection({ track }) {
           albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
           duration: i.track.duration_ms,
         }))
-    )
+      setPlaylistTracks(tracks.length > 0 ? tracks : [])
+      if (tracks.length === 0) setPlaylistError(true)
+    } else {
+      setPlaylistError(true)
+      setPlaylistTracks([])
+    }
     setLoading(false)
   }, [])
 
@@ -435,8 +704,7 @@ function PlayerSection({ track }) {
     setAlbumTracks(null)
     setQuery('')
     setLoading(true)
-    // getAlbumTracks sólo devuelve tracks sin albumArt → usamos la del álbum
-    const res = await window.electronAPI?.getAlbumTracks(album.id, 0)
+    const res = await fetchAlbumTracks(album.id, 0)
     if (res?.items) setAlbumTracks(
       res.items
         .filter(i => i.uri)
@@ -448,6 +716,7 @@ function PlayerSection({ track }) {
           trackNumber: i.track_number || idx + 1,
         }))
     )
+    else setAlbumTracks([])
     setLoading(false)
   }, [])
 
@@ -459,19 +728,39 @@ function PlayerSection({ track }) {
     }
   }, [playUri, playTrackInContext])
 
-  // Filtrado por búsqueda
   const filterByQuery = useCallback((items, fields = ['name', 'artist']) => {
     if (!query.trim()) return items
     const q = query.toLowerCase()
     return items.filter(item => fields.some(f => item[f]?.toLowerCase().includes(q)))
   }, [query])
 
+  // Search Spotify con debounce — usa fetch directo desde el renderer
+  const handleSearchChange = useCallback((val) => {
+    setSearchQuery(val)
+    clearTimeout(searchTimerRef.current)
+    if (!val.trim()) { setSearchResults(null); return }
+    searchTimerRef.current = setTimeout(async () => {
+      setSearchLoading(true)
+      const items = await searchSpotify(val.trim(), 30)
+      if (Array.isArray(items)) {
+        setSearchResults(items.map(i => ({
+          uri: i.uri, name: i.name,
+          artist: i.artists?.map(a => a.name).join(', ') || '',
+          albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
+          duration: i.duration_ms,
+        })))
+      } else {
+        setSearchResults([])
+      }
+      setSearchLoading(false)
+    }, 350)
+  }, [])
+
   const tabs = [
     { id: 'now',       label: '🎵 Ahora'     },
-    { id: 'queue',     label: '⏭ Cola'       },
-    { id: 'playlists', label: '📜 Playlists'  },
-    { id: 'tracks',    label: '🎶 Canciones'  },
-    { id: 'albums',    label: '💿 Álbumes'    },
+    { id: 'playlists', label: '📜 Playlists' },
+    { id: 'tracks',    label: '🎶 Canciones' },
+    { id: 'albums',    label: '💿 Álbumes'   },
   ]
 
   return (
@@ -501,63 +790,117 @@ function PlayerSection({ track }) {
         })}
       </div>
 
-      {/* Panel: Ahora */}
+      {/* Panel: Ahora — 3 acordeones: Reproduciendo / Buscar / Cola */}
       {tab === 'now' && (
-        !track
-          ? <Card title="Reproductor" icon={IconMusic}>
-              <div className="flex flex-col items-center justify-center py-10 gap-3">
-                <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <IconMusic size={22} className="text-hw-oro/30" />
-                </div>
-                <p style={{ fontSize: 13, color: 'rgba(245,230,200,0.4)', fontFamily: 'serif' }}>Sin reproducción activa</p>
-                <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.25)' }}>Abre Spotify y reproduce algo ✨</p>
-              </div>
-            </Card>
-          : <Card title="Reproduciendo ahora" icon={IconMusic}>
-              <div className="flex items-center gap-4 mb-4">
-                <motion.img key={track.id} src={track.albumArt} alt="Album"
-                  initial={{ scale: 0.85, opacity: 0, rotate: -8 }}
-                  animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                  transition={{ type: 'spring', stiffness: 260, damping: 22 }}
-                  style={{ width: 72, height: 72, borderRadius: 10, objectFit: 'cover', flexShrink: 0, border: '2px solid rgba(201,168,76,0.3)', boxShadow: '0 4px 20px rgba(0,0,0,0.4), 0 0 16px rgba(201,168,76,0.18)' }}
-                />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: '#F0C040', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textShadow: '0 0 12px rgba(240,192,64,0.3)' }}>{track.name}</p>
-                  <p style={{ fontSize: 12, color: 'rgba(245,230,200,0.55)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{track.artist}</p>
-                  <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.25)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{track.album}</p>
-                </div>
-              </div>
-              <ProgressBar className="mb-4" />
-              <div className="flex items-center justify-between">
-                <PlayerControls size="md" />
-                <VolumeSlider />
-              </div>
-            </Card>
-      )}
+        <div className="space-y-2">
 
-      {/* Panel: Cola */}
-      {tab === 'queue' && (
-        <Card title="Siguiente en cola" icon={IconMusic}>
-          {loading ? <Spinner /> : !queue ? <Empty text="No hay cola disponible" /> : queue.length === 0 ? <Empty text="La cola está vacía" /> : (
-            <>
-              <SearchInput value={query} onChange={setQuery} placeholder="Buscar en cola..." />
-              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                {filterByQuery(queue).map((t, i) => <TrackRow key={t.uri + i} track={t} index={i} onPlay={handlePlay} />)}
-                {filterByQuery(queue).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
-              </div>
-            </>
-          )}
-        </Card>
+          {/* 1. Reproduciendo ahora */}
+          <Accordion title="Reproduciendo ahora" defaultOpen={true}>
+            {!track
+              ? <div className="flex flex-col items-center justify-center py-6 gap-3">
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconMusic size={20} className="text-hw-oro/30" />
+                  </div>
+                  <p style={{ fontSize: 13, color: 'rgba(245,230,200,0.4)', fontFamily: 'serif' }}>Sin reproducción activa</p>
+                  <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.25)' }}>Abre Spotify y reproduce algo ✨</p>
+                </div>
+              : <>
+                  <div className="flex items-center gap-4 mb-4">
+                    <motion.img key={track.id} src={track.albumArt} alt="Album"
+                      initial={{ scale: 0.85, opacity: 0, rotate: -8 }}
+                      animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                      transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                      style={{ width: 68, height: 68, borderRadius: 10, objectFit: 'cover', flexShrink: 0, border: '2px solid rgba(201,168,76,0.3)', boxShadow: '0 4px 20px rgba(0,0,0,0.4), 0 0 16px rgba(201,168,76,0.18)' }}
+                    />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: '#F0C040', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textShadow: '0 0 12px rgba(240,192,64,0.3)' }}>{track.name}</p>
+                      <p style={{ fontSize: 12, color: 'rgba(245,230,200,0.55)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{track.artist}</p>
+                      <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.25)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{track.album}</p>
+                    </div>
+                  </div>
+                  <ProgressBar className="mb-3" />
+                  <div className="flex items-center justify-between mb-3">
+                    <PlayerControls size="md" />
+                    <VolumeSlider />
+                  </div>
+                  <div style={{ borderTop: '1px solid rgba(201,168,76,0.08)', paddingTop: 10 }}>
+                    <PlaybackModeControls />
+                  </div>
+                </>
+            }
+          </Accordion>
+
+          {/* 2. Buscar en Spotify */}
+          <Accordion title="Buscar en Spotify" defaultOpen={false}>
+            <div style={{ position: 'relative', marginBottom: 10 }}>
+              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                <IconSearch size={12} style={{ color: 'rgba(201,168,76,0.5)' }} />
+              </span>
+              <input
+                value={searchQuery}
+                onChange={e => handleSearchChange(e.target.value)}
+                placeholder="Buscar cualquier canción en Spotify..."
+                className="no-drag"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '7px 10px 7px 30px',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(201,168,76,0.22)',
+                  borderRadius: 8, outline: 'none',
+                  fontSize: 12, color: 'rgba(245,230,200,0.85)',
+                  fontFamily: 'inherit',
+                }}
+                onFocus={e => { e.target.style.borderColor = 'rgba(201,168,76,0.55)' }}
+                onBlur={e  => { e.target.style.borderColor = 'rgba(201,168,76,0.22)' }}
+              />
+              {searchQuery && (
+                <button onClick={() => { setSearchQuery(''); setSearchResults(null) }}
+                  className="no-drag"
+                  style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,230,200,0.35)', fontSize: 13 }}
+                >✕</button>
+              )}
+            </div>
+            {searchLoading
+              ? <Spinner />
+              : !searchResults
+                ? <Empty text="Escribe para buscar ✨" />
+                : searchResults.length === 0
+                  ? <Empty text="Sin resultados" />
+                  : <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                      {searchResults.map((t, i) => <TrackRow key={t.uri + i} track={t} index={i} onPlay={handlePlay} />)}
+                    </div>
+            }
+          </Accordion>
+
+          {/* 3. Cola */}
+          <Accordion title="Siguiente en cola" defaultOpen={true} badge={queue?.length ? `${queue.length} canciones` : undefined}>
+            {loading && !queue
+              ? <Spinner />
+              : !queue
+                ? <Empty text="Cargando cola..." />
+                : queue.length === 0
+                  ? <Empty text="La cola está vacía" />
+                  : <>
+                      <SearchInput value={query} onChange={setQuery} placeholder="Buscar en cola..." />
+                      <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                        {filterByQuery(queue).map((t, i) => <TrackRow key={t.uri + i} track={t} index={i} onPlay={handlePlay} />)}
+                        {filterByQuery(queue).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+                      </div>
+                    </>
+            }
+          </Accordion>
+
+        </div>
       )}
 
       {/* Panel: Playlists */}
       {tab === 'playlists' && (
         <Card title={selectedPlaylist ? `📜 ${selectedPlaylist.name}` : 'Mis Playlists'} icon={IconMusic}>
           {/* Botón volver */}
-          {(selectedPlaylist || selectedAlbum) && (
+          {selectedPlaylist && (
             <div style={{ marginBottom: 10 }}>
               <motion.button
-                onClick={() => { setSelectedPlaylist(null); setPlaylistTracks(null); setQuery('') }}
+                onClick={() => { setSelectedPlaylist(null); setPlaylistTracks(null); setPlaylistError(false); setQuery('') }}
                 className="no-drag"
                 style={{
                   background: 'rgba(201,168,76,0.07)', border: '1px solid rgba(201,168,76,0.2)',
@@ -570,21 +913,28 @@ function PlayerSection({ track }) {
           )}
 
           {loading ? <Spinner /> : selectedPlaylist ? (
-            !playlistTracks
-              ? <Empty text="No se pudieron cargar las canciones" />
-              : playlistTracks.length === 0
-                ? <Empty text="Playlist vacía" />
-                : <>
-                    <SearchInput value={query} onChange={setQuery} placeholder="Buscar en playlist..." />
-                    <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                      {filterByQuery(playlistTracks).map((t, i) => (
-                        <TrackRow key={t.uri + i} track={t} index={i}
-                          onPlay={handlePlay} contextUri={selectedPlaylist.uri}
-                        />
-                      ))}
-                      {filterByQuery(playlistTracks).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
-                    </div>
-                  </>
+            playlistError
+              ? <div>
+                  <Empty text="No se pudieron cargar las canciones" />
+                  <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(245,230,200,0.2)', marginTop: -8 }}>
+                    Si es la primera vez, vuelve a iniciar sesión para actualizar los permisos
+                  </p>
+                </div>
+              : !playlistTracks
+                ? <Spinner />
+                : playlistTracks.length === 0
+                  ? <Empty text="Playlist vacía" />
+                  : <>
+                      <SearchInput value={query} onChange={setQuery} placeholder="Buscar en playlist..." />
+                      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                        {filterByQuery(playlistTracks).map((t, i) => (
+                          <TrackRow key={t.uri + i} track={t} index={i}
+                            onPlay={handlePlay} contextUri={selectedPlaylist.uri}
+                          />
+                        ))}
+                        {filterByQuery(playlistTracks).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+                      </div>
+                    </>
           ) : (
             !playlists
               ? <Empty text="No se pudieron cargar las playlists" />
@@ -608,14 +958,41 @@ function PlayerSection({ track }) {
 
       {/* Panel: Canciones */}
       {tab === 'tracks' && (
-        <Card title="Mis canciones guardadas" icon={IconMusic}>
+        <Card title={`Mis canciones guardadas${tracksTotal > 0 ? ` (${savedTracks?.length ?? 0}/${tracksTotal})` : ''}`} icon={IconMusic}>
           {loading ? <Spinner /> : !savedTracks ? <Empty text="No se pudieron cargar las canciones" /> : savedTracks.length === 0 ? <Empty text="No tienes canciones guardadas" /> : (
             <>
               <SearchInput value={query} onChange={setQuery} placeholder="Buscar canción..." />
-              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                {filterByQuery(savedTracks).map((t, i) => <TrackRow key={t.uri} track={t} index={i} onPlay={handlePlay} />)}
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {filterByQuery(savedTracks).map((t, i) => <TrackRow key={t.uri + i} track={t} index={i} onPlay={handlePlay} />)}
                 {filterByQuery(savedTracks).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
               </div>
+              {/* Botón cargar más */}
+              {!query && tracksOffset < tracksTotal && (
+                <div style={{ textAlign: 'center', paddingTop: 8 }}>
+                  <motion.button
+                    onClick={loadMoreTracks}
+                    disabled={tracksLoadMore}
+                    className="no-drag"
+                    style={{
+                      background: 'rgba(201,168,76,0.07)', border: '1px solid rgba(201,168,76,0.2)',
+                      borderRadius: 8, padding: '6px 16px', fontSize: 11,
+                      color: 'rgba(201,168,76,0.7)', cursor: tracksLoadMore ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    {tracksLoadMore
+                      ? <>
+                          <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                            style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid rgba(201,168,76,0.25)', borderTopColor: '#C9A84C', borderRadius: '50%' }}
+                          />
+                          Cargando...
+                        </>
+                      : `Cargar más (${tracksTotal - tracksOffset} restantes)`
+                    }
+                  </motion.button>
+                </div>
+              )}
             </>
           )}
         </Card>
@@ -624,7 +1001,6 @@ function PlayerSection({ track }) {
       {/* Panel: Álbumes */}
       {tab === 'albums' && (
         <Card title={selectedAlbum ? `💿 ${selectedAlbum.name}` : 'Mis álbumes guardados'} icon={IconMusic}>
-          {/* Volver */}
           {selectedAlbum && (
             <div style={{ marginBottom: 10 }}>
               <motion.button
@@ -819,12 +1195,12 @@ function ThemesSection() {
 }
 
 // ─── Sección: App ────────────────────────────────────────────────────────────
-function AppSection({ onLogout }) {
-  // updateStatus: 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error'
-  const [updateStatus, setUpdateStatus] = useState('idle')
-  const [updateInfo,   setUpdateInfo]   = useState(null)   // { version, percent, message }
 
-  // Escuchar eventos de autoUpdater desde main
+// ─── Sección: App ────────────────────────────────────────────────────────────
+function AppSection({ onLogout }) {
+  const [updateStatus, setUpdateStatus] = useState('idle')
+  const [updateInfo,   setUpdateInfo]   = useState(null)
+
   useEffect(() => {
     const handler = (data) => {
       setUpdateStatus(data.status)
@@ -841,7 +1217,6 @@ function AppSection({ onLogout }) {
     setUpdateInfo(null)
     try {
       await window.electronAPI?.checkForUpdates()
-      // Los eventos de autoUpdater actualizarán el estado automáticamente
     } catch (e) {
       setUpdateStatus('error')
       setUpdateInfo({ message: e.message })
@@ -863,8 +1238,11 @@ function AppSection({ onLogout }) {
 
   return (
     <div className="space-y-3">
+      {/* Carrusel "Para Tupper" — arriba de todo en App */}
+      <TupperCarousel messages={tupperMessages} />
+
       <Card title="Información" icon={IconInfo}>
-        {[['Versión', '1.1.2'], ['Hecho por', 'MrSoniccx'], ['Para', 'Tupper 💜']].map(([k, v]) => (
+        {[['Versión', '1.1.4'], ['Hecho por', 'MrSoniccx'], ['Para', 'Tupper 💜']].map(([k, v]) => (
           <div key={k} className="flex justify-between items-center py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
             <span style={{ fontSize: 12, color: 'rgba(245,230,200,0.35)' }}>{k}</span>
             <span style={{ fontSize: 12, color: 'rgba(245,230,200,0.7)' }}>{v}</span>
@@ -873,7 +1251,6 @@ function AppSection({ onLogout }) {
       </Card>
 
       <Card title="Actualizaciones" icon={IconRefresh}>
-        {/* Barra de progreso cuando descargando */}
         {updateStatus === 'downloading' && (
           <div style={{ marginBottom: 8, borderRadius: 4, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', height: 4 }}>
             <motion.div
@@ -932,25 +1309,16 @@ function AppSection({ onLogout }) {
           >
             <IconMinimize size={14} /> Minimizar al tray
           </motion.button>
+          <motion.button onClick={() => window.electronAPI?.quitApp()}
+            className="w-full flex items-center justify-center gap-2 rounded-xl no-drag"
+            style={{ padding: '10px 16px', background: 'rgba(248,113,113,0.04)', border: '1px solid rgba(248,113,113,0.15)', color: 'rgba(248,113,113,0.6)', fontSize: 13, fontWeight: 500 }}
+            whileHover={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }} whileTap={{ scale: 0.97 }}
+          >
+            <IconPower size={14} /> Cerrar completamente
+          </motion.button>
         </div>
       </Card>
 
-      {/* Mensaje de cumpleaños */}
-      <motion.div
-        animate={{ boxShadow: ['0 0 10px rgba(201,168,76,0.1)', '0 0 20px rgba(201,168,76,0.25)', '0 0 10px rgba(201,168,76,0.1)'] }}
-        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-        style={{ borderRadius: 12, padding: '20px 16px', background: 'linear-gradient(135deg, rgba(116,0,1,0.18), rgba(201,168,76,0.1))', border: '1px solid rgba(201,168,76,0.22)', textAlign: 'center' }}
-      >
-        <p style={{ fontFamily: '"UnifrakturMaguntia", cursive', fontSize: 22, color: '#C9A84C', marginBottom: 8, textShadow: '0 0 15px rgba(201,168,76,0.5)' }}>Para Tupper</p>
-        <p style={{ fontSize: 14, marginBottom: 6 }}>⚡ 🦁 ✨ 🌟 ⚡</p>
-        <p style={{ fontSize: 12, color: 'rgba(245,230,200,0.6)', lineHeight: 1.7 }}>
-          Que cada canción sea tan mágica como tú<br />
-          <span style={{ fontStyle: 'italic', color: 'rgba(201,168,76,0.7)' }}>"Happiness can be found even in the darkest of times,</span><br />
-          <span style={{ fontStyle: 'italic', color: 'rgba(201,168,76,0.7)' }}>if one only remembers to turn on the music"</span><br />
-          <span style={{ fontSize: 11, color: 'rgba(245,230,200,0.3)' }}>— Dumbledore (casi)</span>
-        </p>
-        <p style={{ marginTop: 10, fontSize: 13, color: '#F0C040', fontWeight: 600 }}>¡Feliz cumpleaños! 🎂🏰</p>
-      </motion.div>
     </div>
   )
 }

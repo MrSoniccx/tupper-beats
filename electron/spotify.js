@@ -11,7 +11,13 @@ function spotifyRequest(options, body = null) {
       let data = ''
       res.on('data', chunk => (data += chunk))
       res.on('end', () => {
-        resolve({ status: res.statusCode, body: data ? JSON.parse(data) : null })
+        // Parseo seguro: 204 No Content, HTML de error, o respuestas no-JSON
+        // no deben crashear el proceso principal
+        let parsed = null
+        if (data && data.trim()) {
+          try { parsed = JSON.parse(data) } catch { parsed = null }
+        }
+        resolve({ status: res.statusCode, body: parsed })
       })
     })
     req.on('error', reject)
@@ -241,6 +247,10 @@ module.exports = {
   getUserPlaylists,
   getPlaylistTracks,
   getAlbumTracks,
+  searchTracks,
+  setShuffleState,
+  setRepeatState,
+  addToQueue,
 }
 
 // ─── Playlists del usuario ─────────────────────────────────────────────────
@@ -292,4 +302,73 @@ async function getAlbumTracks(store, albumId, offset = 0) {
     if (res.status === 200 && res.body) return res.body
     return null
   } catch { return null }
+}
+
+// ─── Búsqueda de canciones ─────────────────────────────────────────────────
+async function searchTracks(store, query) {
+  const token = await getValidToken(store)
+  if (!token) return null
+  const q = encodeURIComponent(query)
+  const options = {
+    hostname: 'api.spotify.com',
+    path:     `/v1/search?q=${q}&type=track&limit=30`,
+    method:   'GET',
+    headers:  { Authorization: `Bearer ${token}` },
+  }
+  try {
+    const res = await spotifyRequest(options)
+    if (res.status === 200 && res.body) return res.body
+    return null
+  } catch { return null }
+}
+
+// ─── Shuffle ───────────────────────────────────────────────────────────────
+async function setShuffleState(store, state) {
+  const token = await getValidToken(store)
+  if (!token) return { error: 'No token' }
+  const options = {
+    hostname: 'api.spotify.com',
+    path:     `/v1/me/player/shuffle?state=${state}`,
+    method:   'PUT',
+    // Sin Content-Type ni body — Spotify devuelve 204 No Content
+    headers:  { Authorization: `Bearer ${token}`, 'Content-Length': '0' },
+  }
+  try {
+    const res = await spotifyRequest(options)
+    return { status: res.statusCode }
+  } catch (e) { return { error: e.message } }
+}
+
+// ─── Repeat ────────────────────────────────────────────────────────────────
+// state: 'track' | 'context' | 'off'
+async function setRepeatState(store, state) {
+  const token = await getValidToken(store)
+  if (!token) return { error: 'No token' }
+  const options = {
+    hostname: 'api.spotify.com',
+    path:     `/v1/me/player/repeat?state=${state}`,
+    method:   'PUT',
+    // Sin Content-Type ni body — Spotify devuelve 204 No Content
+    headers:  { Authorization: `Bearer ${token}`, 'Content-Length': '0' },
+  }
+  try {
+    const res = await spotifyRequest(options)
+    return { status: res.statusCode }
+  } catch (e) { return { error: e.message } }
+}
+
+// ─── Add to queue ──────────────────────────────────────────────────────────
+async function addToQueue(store, uri) {
+  const token = await getValidToken(store)
+  if (!token) return { error: 'No token' }
+  const options = {
+    hostname: 'api.spotify.com',
+    path:     `/v1/me/player/queue?uri=${encodeURIComponent(uri)}`,
+    method:   'POST',
+    headers:  { Authorization: `Bearer ${token}`, 'Content-Length': '0' },
+  }
+  try {
+    const res = await spotifyRequest(options)
+    return { status: res.statusCode }
+  } catch (e) { return { error: e.message } }
 }
