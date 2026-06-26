@@ -181,13 +181,12 @@ function TrackRow({ track, index, onPlay, contextUri }) {
 }
 
 // ─── Album row ────────────────────────────────────────────────────────────────
-function AlbumRow({ album, onPlay }) {
+function AlbumRow({ album, onPlay, onSelect }) {
   const [hovered, setHovered] = useState(false)
   return (
     <motion.div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={() => onPlay(album.uri)}
       className="no-drag"
       style={{
         display: 'flex', alignItems: 'center', gap: 10,
@@ -197,13 +196,36 @@ function AlbumRow({ album, onPlay }) {
       }}
       whileTap={{ scale: 0.98 }}
     >
-      {album.imageUrl && (
-        <img src={album.imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0, border: '1px solid rgba(201,168,76,0.2)' }} />
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {album.imageUrl
+        ? <img src={album.imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0, border: '1px solid rgba(201,168,76,0.2)' }} />
+        : <div style={{ width: 40, height: 40, borderRadius: 6, background: 'rgba(201,168,76,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>💿</div>
+      }
+      <div style={{ flex: 1, minWidth: 0 }} onClick={() => onSelect && onSelect(album)}>
         <p style={{ fontSize: 12, color: 'rgba(245,230,200,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{album.name}</p>
         <p style={{ fontSize: 11, color: 'rgba(245,230,200,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{album.artist} · {album.year}</p>
       </div>
+      {hovered && (
+        <motion.button
+          initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
+          onClick={(e) => { e.stopPropagation(); onPlay(album.uri) }}
+          className="no-drag"
+          style={{
+            background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.3)',
+            borderRadius: 6, padding: '3px 8px', fontSize: 11,
+            color: '#F0C040', cursor: 'pointer', flexShrink: 0,
+          }}
+        >▶</motion.button>
+      )}
+      <motion.button
+        onClick={(e) => { e.stopPropagation(); onSelect && onSelect(album) }}
+        className="no-drag"
+        style={{
+          background: 'transparent', border: '1px solid rgba(201,168,76,0.2)',
+          borderRadius: 6, padding: '3px 8px', fontSize: 11,
+          color: 'rgba(245,230,200,0.5)', cursor: 'pointer', flexShrink: 0,
+          opacity: hovered ? 1 : 0.4, transition: 'opacity 0.15s',
+        }}
+      >Ver →</motion.button>
     </motion.div>
   )
 }
@@ -260,47 +282,113 @@ function PlaylistRow({ playlist, onSelect, onPlay }) {
   )
 }
 
+// ─── Buscador ─────────────────────────────────────────────────────────────────
+function SearchInput({ value, onChange, placeholder = 'Buscar...' }) {
+  return (
+    <div style={{ position: 'relative', marginBottom: 8 }}>
+      <span style={{
+        position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+        fontSize: 12, color: 'rgba(201,168,76,0.5)', pointerEvents: 'none',
+      }}>🔍</span>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="no-drag"
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          padding: '7px 10px 7px 30px',
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(201,168,76,0.2)',
+          borderRadius: 8, outline: 'none',
+          fontSize: 12, color: 'rgba(245,230,200,0.85)',
+          fontFamily: 'inherit',
+        }}
+        onFocus={e => { e.target.style.borderColor = 'rgba(201,168,76,0.5)' }}
+        onBlur={e  => { e.target.style.borderColor = 'rgba(201,168,76,0.2)' }}
+      />
+      {value && (
+        <button
+          onClick={() => onChange('')}
+          className="no-drag"
+          style={{
+            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'rgba(245,230,200,0.4)', fontSize: 14, lineHeight: 1,
+          }}
+        >✕</button>
+      )}
+    </div>
+  )
+}
+
 // ─── Sección: Reproductor con tabs ───────────────────────────────────────────
 function PlayerSection({ track }) {
   const { playUri, playTrackInContext } = useSpotifyControls()
-  const [tab, setTab]           = useState('now')
-  const [savedTracks, setSavedTracks]   = useState(null)
-  const [savedAlbums, setSavedAlbums]   = useState(null)
-  const [queue,       setQueue]         = useState(null)
-  const [playlists,   setPlaylists]     = useState(null)
-  const [selectedPlaylist, setSelectedPlaylist] = useState(null)  // { id, name, uri, ... }
-  const [playlistTracks, setPlaylistTracks]     = useState(null)
-  const [loading,     setLoading]       = useState(false)
 
+  const [tab,            setTab]            = useState('now')
+  const [savedTracks,    setSavedTracks]    = useState(null)
+  const [savedAlbums,    setSavedAlbums]    = useState(null)
+  const [queue,          setQueue]          = useState(null)
+  const [playlists,      setPlaylists]      = useState(null)
+  const [selectedPlaylist, setSelectedPlaylist] = useState(null)
+  const [playlistTracks,   setPlaylistTracks]   = useState(null)
+  const [selectedAlbum,  setSelectedAlbum]  = useState(null)  // { id, uri, name, imageUrl, artist }
+  const [albumTracks,    setAlbumTracks]    = useState(null)
+  const [loading,        setLoading]        = useState(false)
+  const [query,          setQuery]          = useState('')
+
+  // Al cambiar canción → resetear todo a "unloaded"
+  useEffect(() => {
+    setSavedTracks(null)
+    setSavedAlbums(null)
+    setQueue(null)
+    setPlaylists(null)
+    setSelectedPlaylist(null)
+    setPlaylistTracks(null)
+    setSelectedAlbum(null)
+    setAlbumTracks(null)
+    setQuery('')
+  }, [track?.id])
+
+  // Siempre fetch al cambiar tab (sin cache)
   const loadTab = useCallback(async (t) => {
     setTab(t)
     setSelectedPlaylist(null)
     setPlaylistTracks(null)
+    setSelectedAlbum(null)
+    setAlbumTracks(null)
+    setQuery('')
 
-    if (t === 'tracks' && !savedTracks) {
+    if (t === 'tracks') {
       setLoading(true)
+      setSavedTracks(null)
       const res = await window.electronAPI?.getSavedTracks(0)
       if (res?.items) setSavedTracks(res.items.filter(i => i.track).map(i => ({
         uri: i.track.uri, name: i.track.name,
         artist: i.track.artists.map(a => a.name).join(', '),
-        albumArt: i.track.album.images?.[1]?.url || i.track.album.images?.[0]?.url || '',
+        albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
         duration: i.track.duration_ms,
       })))
       setLoading(false)
     }
-    if (t === 'albums' && !savedAlbums) {
+    if (t === 'albums') {
       setLoading(true)
+      setSavedAlbums(null)
       const res = await window.electronAPI?.getSavedAlbums(0)
       if (res?.items) setSavedAlbums(res.items.map(i => ({
+        id: i.album.id,
         uri: i.album.uri, name: i.album.name,
         artist: i.album.artists.map(a => a.name).join(', '),
         year: i.album.release_date?.split('-')[0] || '',
         imageUrl: i.album.images?.[1]?.url || i.album.images?.[0]?.url || '',
+        total: i.album.total_tracks || 0,
       })))
       setLoading(false)
     }
-    if (t === 'queue' && !queue) {
+    if (t === 'queue') {
       setLoading(true)
+      setQueue(null)
       const res = await window.electronAPI?.getQueue()
       if (res?.queue) setQueue(res.queue.slice(0, 30).map(i => ({
         uri: i.uri, name: i.name,
@@ -310,8 +398,9 @@ function PlayerSection({ track }) {
       })))
       setLoading(false)
     }
-    if (t === 'playlists' && !playlists) {
+    if (t === 'playlists') {
       setLoading(true)
+      setPlaylists(null)
       const res = await window.electronAPI?.getPlaylists(0)
       if (res?.items) setPlaylists(res.items.map(p => ({
         id: p.id, uri: p.uri, name: p.name,
@@ -320,23 +409,48 @@ function PlayerSection({ track }) {
       })))
       setLoading(false)
     }
-  }, [savedTracks, savedAlbums, queue, playlists])
+  }, [])
 
   const openPlaylist = useCallback(async (playlist) => {
     setSelectedPlaylist(playlist)
     setPlaylistTracks(null)
+    setQuery('')
     setLoading(true)
     const res = await window.electronAPI?.getPlaylistTracks(playlist.id, 0)
-    if (res?.items) setPlaylistTracks(res.items.filter(i => i.track).map(i => ({
-      uri: i.track.uri, name: i.track.name,
-      artist: i.track.artists?.map(a => a.name).join(', ') || '',
-      albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
-      duration: i.track.duration_ms,
-    })))
+    if (res?.items) setPlaylistTracks(
+      res.items
+        .filter(i => i.track && i.track.uri)
+        .map(i => ({
+          uri: i.track.uri, name: i.track.name,
+          artist: i.track.artists?.map(a => a.name).join(', ') || '',
+          albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
+          duration: i.track.duration_ms,
+        }))
+    )
     setLoading(false)
   }, [])
 
-  // Play: si tiene contexto (playlist/album) usa playTrackInContext para reproducir esa canción
+  const openAlbum = useCallback(async (album) => {
+    setSelectedAlbum(album)
+    setAlbumTracks(null)
+    setQuery('')
+    setLoading(true)
+    // getAlbumTracks sólo devuelve tracks sin albumArt → usamos la del álbum
+    const res = await window.electronAPI?.getAlbumTracks(album.id, 0)
+    if (res?.items) setAlbumTracks(
+      res.items
+        .filter(i => i.uri)
+        .map((i, idx) => ({
+          uri: i.uri, name: i.name,
+          artist: i.artists?.map(a => a.name).join(', ') || album.artist,
+          albumArt: album.imageUrl,
+          duration: i.duration_ms,
+          trackNumber: i.track_number || idx + 1,
+        }))
+    )
+    setLoading(false)
+  }, [])
+
   const handlePlay = useCallback(async (uri, contextUri) => {
     if (contextUri && uri.startsWith('spotify:track:')) {
       await playTrackInContext(contextUri, uri)
@@ -344,6 +458,13 @@ function PlayerSection({ track }) {
       await playUri(uri)
     }
   }, [playUri, playTrackInContext])
+
+  // Filtrado por búsqueda
+  const filterByQuery = useCallback((items, fields = ['name', 'artist']) => {
+    if (!query.trim()) return items
+    const q = query.toLowerCase()
+    return items.filter(item => fields.some(f => item[f]?.toLowerCase().includes(q)))
+  }, [query])
 
   const tabs = [
     { id: 'now',       label: '🎵 Ahora'     },
@@ -418,9 +539,13 @@ function PlayerSection({ track }) {
       {tab === 'queue' && (
         <Card title="Siguiente en cola" icon={IconMusic}>
           {loading ? <Spinner /> : !queue ? <Empty text="No hay cola disponible" /> : queue.length === 0 ? <Empty text="La cola está vacía" /> : (
-            <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-              {queue.map((t, i) => <TrackRow key={t.uri + i} track={t} index={i} onPlay={handlePlay} />)}
-            </div>
+            <>
+              <SearchInput value={query} onChange={setQuery} placeholder="Buscar en cola..." />
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                {filterByQuery(queue).map((t, i) => <TrackRow key={t.uri + i} track={t} index={i} onPlay={handlePlay} />)}
+                {filterByQuery(queue).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+              </div>
+            </>
           )}
         </Card>
       )}
@@ -428,10 +553,11 @@ function PlayerSection({ track }) {
       {/* Panel: Playlists */}
       {tab === 'playlists' && (
         <Card title={selectedPlaylist ? `📜 ${selectedPlaylist.name}` : 'Mis Playlists'} icon={IconMusic}>
-          {selectedPlaylist && (
+          {/* Botón volver */}
+          {(selectedPlaylist || selectedAlbum) && (
             <div style={{ marginBottom: 10 }}>
               <motion.button
-                onClick={() => { setSelectedPlaylist(null); setPlaylistTracks(null) }}
+                onClick={() => { setSelectedPlaylist(null); setPlaylistTracks(null); setQuery('') }}
                 className="no-drag"
                 style={{
                   background: 'rgba(201,168,76,0.07)', border: '1px solid rgba(201,168,76,0.2)',
@@ -439,33 +565,43 @@ function PlayerSection({ track }) {
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
                 }}
                 whileTap={{ scale: 0.97 }}
-              >
-                ← Volver a playlists
-              </motion.button>
+              >← Volver a playlists</motion.button>
             </div>
           )}
+
           {loading ? <Spinner /> : selectedPlaylist ? (
-            !playlistTracks ? <Empty text="No se pudieron cargar las canciones" /> : playlistTracks.length === 0 ? <Empty text="Playlist vacía" /> : (
-              <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-                {playlistTracks.map((t, i) => (
-                  <TrackRow key={t.uri + i} track={t} index={i}
-                    onPlay={handlePlay}
-                    contextUri={selectedPlaylist.uri}
-                  />
-                ))}
-              </div>
-            )
+            !playlistTracks
+              ? <Empty text="No se pudieron cargar las canciones" />
+              : playlistTracks.length === 0
+                ? <Empty text="Playlist vacía" />
+                : <>
+                    <SearchInput value={query} onChange={setQuery} placeholder="Buscar en playlist..." />
+                    <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                      {filterByQuery(playlistTracks).map((t, i) => (
+                        <TrackRow key={t.uri + i} track={t} index={i}
+                          onPlay={handlePlay} contextUri={selectedPlaylist.uri}
+                        />
+                      ))}
+                      {filterByQuery(playlistTracks).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+                    </div>
+                  </>
           ) : (
-            !playlists ? <Empty text="No se pudieron cargar las playlists" /> : playlists.length === 0 ? <Empty text="No tienes playlists" /> : (
-              <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-                {playlists.map(p => (
-                  <PlaylistRow key={p.id} playlist={p}
-                    onSelect={openPlaylist}
-                    onPlay={(uri) => handlePlay(uri)}
-                  />
-                ))}
-              </div>
-            )
+            !playlists
+              ? <Empty text="No se pudieron cargar las playlists" />
+              : playlists.length === 0
+                ? <Empty text="No tienes playlists" />
+                : <>
+                    <SearchInput value={query} onChange={setQuery} placeholder="Buscar playlist..." />
+                    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                      {filterByQuery(playlists, ['name']).map(p => (
+                        <PlaylistRow key={p.id} playlist={p}
+                          onSelect={openPlaylist}
+                          onPlay={(uri) => handlePlay(uri)}
+                        />
+                      ))}
+                      {filterByQuery(playlists, ['name']).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+                    </div>
+                  </>
           )}
         </Card>
       )}
@@ -474,20 +610,69 @@ function PlayerSection({ track }) {
       {tab === 'tracks' && (
         <Card title="Mis canciones guardadas" icon={IconMusic}>
           {loading ? <Spinner /> : !savedTracks ? <Empty text="No se pudieron cargar las canciones" /> : savedTracks.length === 0 ? <Empty text="No tienes canciones guardadas" /> : (
-            <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-              {savedTracks.map((t, i) => <TrackRow key={t.uri} track={t} index={i} onPlay={handlePlay} />)}
-            </div>
+            <>
+              <SearchInput value={query} onChange={setQuery} placeholder="Buscar canción..." />
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                {filterByQuery(savedTracks).map((t, i) => <TrackRow key={t.uri} track={t} index={i} onPlay={handlePlay} />)}
+                {filterByQuery(savedTracks).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+              </div>
+            </>
           )}
         </Card>
       )}
 
       {/* Panel: Álbumes */}
       {tab === 'albums' && (
-        <Card title="Mis álbumes guardados" icon={IconMusic}>
-          {loading ? <Spinner /> : !savedAlbums ? <Empty text="No se pudieron cargar los álbumes" /> : savedAlbums.length === 0 ? <Empty text="No tienes álbumes guardados" /> : (
-            <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-              {savedAlbums.map((a) => <AlbumRow key={a.uri} album={a} onPlay={(uri) => handlePlay(uri)} />)}
+        <Card title={selectedAlbum ? `💿 ${selectedAlbum.name}` : 'Mis álbumes guardados'} icon={IconMusic}>
+          {/* Volver */}
+          {selectedAlbum && (
+            <div style={{ marginBottom: 10 }}>
+              <motion.button
+                onClick={() => { setSelectedAlbum(null); setAlbumTracks(null); setQuery('') }}
+                className="no-drag"
+                style={{
+                  background: 'rgba(201,168,76,0.07)', border: '1px solid rgba(201,168,76,0.2)',
+                  borderRadius: 7, padding: '4px 10px', fontSize: 11, color: 'rgba(245,230,200,0.6)',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                }}
+                whileTap={{ scale: 0.97 }}
+              >← Volver a álbumes</motion.button>
             </div>
+          )}
+
+          {loading ? <Spinner /> : selectedAlbum ? (
+            !albumTracks
+              ? <Empty text="No se pudieron cargar las canciones del álbum" />
+              : albumTracks.length === 0
+                ? <Empty text="Álbum vacío" />
+                : <>
+                    <SearchInput value={query} onChange={setQuery} placeholder="Buscar en álbum..." />
+                    <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                      {filterByQuery(albumTracks).map((t, i) => (
+                        <TrackRow key={t.uri + i} track={{ ...t, index: t.trackNumber }} index={t.trackNumber - 1}
+                          onPlay={handlePlay} contextUri={selectedAlbum.uri}
+                        />
+                      ))}
+                      {filterByQuery(albumTracks).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+                    </div>
+                  </>
+          ) : (
+            !savedAlbums
+              ? <Empty text="No se pudieron cargar los álbumes" />
+              : savedAlbums.length === 0
+                ? <Empty text="No tienes álbumes guardados" />
+                : <>
+                    <SearchInput value={query} onChange={setQuery} placeholder="Buscar álbum..." />
+                    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                      {filterByQuery(savedAlbums, ['name', 'artist']).map(a => (
+                        <AlbumRow key={a.uri} album={a}
+                          onPlay={(uri) => handlePlay(uri)}
+                          onSelect={openAlbum}
+                        />
+                      ))}
+                      {filterByQuery(savedAlbums, ['name', 'artist']).length === 0 && <Empty text={`Sin resultados para "${query}"`} />}
+                    </div>
+                  </>
           )}
         </Card>
       )}

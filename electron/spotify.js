@@ -240,6 +240,7 @@ module.exports = {
   playTrack,
   getUserPlaylists,
   getPlaylistTracks,
+  getAlbumTracks,
 }
 
 // ─── Playlists del usuario ─────────────────────────────────────────────────
@@ -265,7 +266,24 @@ async function getPlaylistTracks(store, playlistId, offset = 0) {
   if (!token) return null
   const options = {
     hostname: 'api.spotify.com',
-    path:     `/v1/playlists/${playlistId}/tracks?limit=100&offset=${offset}&fields=items(track(id,uri,name,duration_ms,artists,album(images)))`,
+    path:     `/v1/playlists/${playlistId}/tracks?limit=100&offset=${offset}`,
+    method:   'GET',
+    headers:  { Authorization: `Bearer ${token}` },
+  }
+  try {
+    const res = await spotifyRequest(options)
+    if (res.status === 200 && res.body) return res.body
+    return null
+  } catch { return null }
+}
+
+// ─── Tracks de un álbum ────────────────────────────────────────────────────
+async function getAlbumTracks(store, albumId, offset = 0) {
+  const token = await getValidToken(store)
+  if (!token) return null
+  const options = {
+    hostname: 'api.spotify.com',
+    path:     `/v1/albums/${albumId}/tracks?limit=50&offset=${offset}`,
     method:   'GET',
     headers:  { Authorization: `Bearer ${token}` },
   }

@@ -408,9 +408,10 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
                       <VolumeSlider />
                     </motion.div>
                   </div>
-                </div>
+
               </div>
-            </motion.div>
+            </div>
+          </motion.div>
           )}
         </AnimatePresence>
       </div>

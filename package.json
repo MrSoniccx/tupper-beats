@@ -1,6 +1,6 @@
 {
   "name": "tupper-beats",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "🎁 Un regalo mágico de cumpleaños para Tupper — Spotify + Hogwarts",
   "main": "electron/main.js",
   "scripts": {
@@ -46,7 +46,20 @@
       "output": "dist-electron"
     },
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "public/icon.ico"
     },
     "mac": {
@@ -72,7 +85,10 @@
         "repo": "tupper-beats",
         "releaseType": "release"
       }
-    ],
-    "extraResources": []
+    ]
+  },
+  "author": {
+    "name": "MrSoniccx",
+    "email": "manuel.bcs64@gmail.com"
   }
 }

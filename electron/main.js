@@ -3,7 +3,7 @@ const path = require('path')
 const Store = require('electron-store')
 const log  = require('electron-log')
 const { autoUpdater } = require('electron-updater')
-const { startSpotifyPolling, stopSpotifyPolling, getQueue, getSavedTracks, getSavedAlbums, playTrack, getUserPlaylists, getPlaylistTracks } = require('./spotify')
+const { startSpotifyPolling, stopSpotifyPolling, getQueue, getSavedTracks, getSavedAlbums, playTrack, getUserPlaylists, getPlaylistTracks, getAlbumTracks } = require('./spotify')
 
 const store = new Store()
 const isDev = process.env.NODE_ENV === 'development'
@@ -328,3 +328,4 @@ ipcMain.handle('spotify-get-saved-albums',    (_, offset)  => getSavedAlbums(sto
 ipcMain.handle('spotify-play-track',          (_, uri)     => playTrack(store, uri))
 ipcMain.handle('spotify-get-playlists',       (_, offset)  => getUserPlaylists(store, offset || 0))
 ipcMain.handle('spotify-get-playlist-tracks', (_, id, off) => getPlaylistTracks(store, id, off || 0))
+ipcMain.handle('spotify-get-album-tracks',    (_, id, off) => getAlbumTracks(store, id, off || 0))
