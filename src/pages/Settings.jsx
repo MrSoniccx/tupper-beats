@@ -1242,7 +1242,7 @@ function AppSection({ onLogout }) {
       <TupperCarousel messages={tupperMessages} />
 
       <Card title="Información" icon={IconInfo}>
-        {[['Versión', '1.1.4'], ['Hecho por', 'MrSoniccx'], ['Para', 'Tupper 💜']].map(([k, v]) => (
+        {[['Versión', '1.1.5'], ['Hecho por', 'MrSoniccx'], ['Para', 'Tupper 💜']].map(([k, v]) => (
           <div key={k} className="flex justify-between items-center py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
             <span style={{ fontSize: 12, color: 'rgba(245,230,200,0.35)' }}>{k}</span>
             <span style={{ fontSize: 12, color: 'rgba(245,230,200,0.7)' }}>{v}</span>

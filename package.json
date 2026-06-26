@@ -1,6 +1,6 @@
 {
   "name": "tupper-beats",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "🎁 Un regalo mágico de cumpleaños para Tupper — Spotify + Hogwarts",
   "main": "electron/main.js",
   "scripts": {
