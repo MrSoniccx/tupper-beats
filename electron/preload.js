@@ -49,4 +49,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   broadcastVolume: (vol) => ipcRenderer.send('volume-changed', vol),
 
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
+
+  // Token válido (con auto-refresh via main process)
+  getValidToken: ()    => ipcRenderer.invoke('get-valid-token'),
+
+  // Pantallas disponibles para selector de notificación
+  getDisplays:   ()    => ipcRenderer.invoke('get-displays'),
+  setNotificationScreen: (idx) => ipcRenderer.send('set-notification-screen', idx),
+
+  // Panel expandible de la notificación
+  resizeNotification: (expanded) => ipcRenderer.send('resize-notification', expanded),
 })

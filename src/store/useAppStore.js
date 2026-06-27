@@ -42,14 +42,22 @@ const useAppStore = create((set, get) => ({
     await window.electronAPI?.storeSet('notificationAutoHide', seconds)
   },
 
+  notificationScreen: 0,
+  setNotificationScreen: async (idx) => {
+    set({ notificationScreen: idx })
+    await window.electronAPI?.storeSet('notificationScreen', idx)
+    window.electronAPI?.setNotificationScreen?.(idx)
+  },
+
   // Carga inicial desde electron-store
   loadSettings: async () => {
     if (!window.electronAPI) return
-    const [theme, mode, position, autoHide, hasToken] = await Promise.all([
+    const [theme, mode, position, autoHide, screen, hasToken] = await Promise.all([
       window.electronAPI.getActiveTheme(),
       window.electronAPI.storeGet('notificationMode', 'normal'),
       window.electronAPI.storeGet('notificationPosition', 'bottom-right'),
       window.electronAPI.storeGet('notificationAutoHide', 10),
+      window.electronAPI.storeGet('notificationScreen', 0),
       window.electronAPI.storeGet('spotifyAccessToken', null),
     ])
     set({
@@ -57,9 +65,20 @@ const useAppStore = create((set, get) => ({
       notificationMode: mode,
       notificationPosition: position,
       notificationAutoHide: autoHide,
+      notificationScreen: screen || 0,
       isAuthenticated: !!hasToken,
     })
   },
+
+  // Cache permanente de canciones guardadas (nunca se borra, persiste en memoria)
+  savedTracksCache: null,        // Array de tracks | null (nunca cargado aún)
+  savedTracksCacheTotal: 0,
+  savedTracksLoading: false,
+  savedTracksProgress: null,     // { loaded, total } | null
+  setSavedTracksCache: (tracks, total) => set({ savedTracksCache: tracks, savedTracksCacheTotal: total, savedTracksProgress: null, savedTracksLoading: false }),
+  setSavedTracksLoading: (val) => set({ savedTracksLoading: val }),
+  setSavedTracksProgress: (p) => set({ savedTracksProgress: p }),
+  clearSavedTracksCache: () => set({ savedTracksCache: null, savedTracksCacheTotal: 0, savedTracksProgress: null }),
 
   // Volumen (sincronizado entre VolumeSliders del mismo proceso)
   volume: 70,

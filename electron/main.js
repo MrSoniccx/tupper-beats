@@ -3,7 +3,7 @@ const path = require('path')
 const Store = require('electron-store')
 const log  = require('electron-log')
 const { autoUpdater } = require('electron-updater')
-const { startSpotifyPolling, stopSpotifyPolling, getQueue, getSavedTracks, getSavedAlbums, playTrack, getUserPlaylists, getPlaylistTracks, getAlbumTracks, searchTracks, setShuffleState, setRepeatState, addToQueue } = require('./spotify')
+const { startSpotifyPolling, stopSpotifyPolling, getQueue, getSavedTracks, getSavedAlbums, playTrack, getUserPlaylists, getPlaylistTracks, getAlbumTracks, searchTracks, setShuffleState, setRepeatState, addToQueue, getValidToken } = require('./spotify')
 
 const store = new Store()
 const isDev = process.env.NODE_ENV === 'development'
@@ -49,18 +49,26 @@ function createMainWindow() {
 }
 
 // ─── Ventana de notificación ────────────────────────────────────────────────
-function createNotificationWindow() {
-  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+function getNotificationBounds() {
+  const displays = screen.getAllDisplays()
+  const screenIdx = store.get('notificationScreen', 0)
+  const display = displays[screenIdx] || screen.getPrimaryDisplay()
+  const { x: dx, y: dy, width: sw, height: sh } = display.workArea
   const ww = 380, wh = 160
   const position = store.get('notificationPosition', 'bottom-right')
   const margin = 16
   let x, y
   switch (position) {
-    case 'top-left':    x = margin;       y = margin; break
-    case 'top-right':   x = sw-ww-margin; y = margin; break
-    case 'bottom-left': x = margin;       y = sh-wh-margin; break
-    default:            x = sw-ww-margin; y = sh-wh-margin; break
+    case 'top-left':    x = dx + margin;       y = dy + margin; break
+    case 'top-right':   x = dx + sw-ww-margin; y = dy + margin; break
+    case 'bottom-left': x = dx + margin;       y = dy + sh-wh-margin; break
+    default:            x = dx + sw-ww-margin; y = dy + sh-wh-margin; break
   }
+  return { x, y, ww, wh }
+}
+
+function createNotificationWindow() {
+  const { x, y, ww, wh } = getNotificationBounds()
 
   notificationWindow = new BrowserWindow({
     width: ww, height: wh, x, y,
@@ -303,7 +311,58 @@ ipcMain.handle('get-active-theme', () => store.get('activeTheme', 'hogwarts'))
 ipcMain.handle('set-active-theme', (_, theme) => { store.set('activeTheme', theme); return true })
 ipcMain.on('update-notification-settings', (_, settings) => {
   if (settings.mode)     { store.set('notificationMode', settings.mode); updateNotificationLevel() }
-  if (settings.position) { store.set('notificationPosition', settings.position) }
+  if (settings.position) {
+    store.set('notificationPosition', settings.position)
+    // Mover la ventana inmediatamente al cambiar posición
+    if (notificationWindow && !notificationWindow.isDestroyed()) {
+      const { x, y } = getNotificationBounds()
+      notificationWindow.setPosition(x, y)
+    }
+  }
+  if (settings.screen !== undefined) { store.set('notificationScreen', settings.screen) }
+})
+
+// Redimensionar la notificación (para el panel expandible)
+ipcMain.on('resize-notification', (_, expanded) => {
+  if (!notificationWindow || notificationWindow.isDestroyed()) return
+  const normalH = 160, expandH = 370, ww = 380
+  const { x, y } = getNotificationBounds()
+  const position = store.get('notificationPosition', 'bottom-right')
+  if (expanded) {
+    notificationWindow.setSize(ww, expandH)
+    const newY = (position === 'bottom-right' || position === 'bottom-left')
+      ? y - (expandH - normalH)
+      : y
+    notificationWindow.setPosition(x, newY)
+    try { notificationWindow.setFocusable(true) } catch {}
+  } else {
+    notificationWindow.setSize(ww, normalH)
+    notificationWindow.setPosition(x, y)
+    try { notificationWindow.setFocusable(false) } catch {}
+  }
+})
+
+// Mover la ventana de notificación a la pantalla/posición actualizada
+ipcMain.on('set-notification-screen', (_, idx) => {
+  store.set('notificationScreen', idx)
+  if (notificationWindow && !notificationWindow.isDestroyed()) {
+    const { x, y } = getNotificationBounds()
+    notificationWindow.setPosition(x, y)
+  }
+})
+
+// Exponer token válido (con auto-refresh) al renderer
+ipcMain.handle('get-valid-token', () => getValidToken(store))
+
+// Listar todas las pantallas disponibles
+ipcMain.handle('get-displays', () => {
+  return screen.getAllDisplays().map((d, i) => ({
+    index: i,
+    label: `Pantalla ${i + 1}`,
+    primary: d.id === screen.getPrimaryDisplay().id,
+    width: d.workArea.width,
+    height: d.workArea.height,
+  }))
 })
 
 // ─── IPC: auto-updater ───────────────────────────────────────────────────

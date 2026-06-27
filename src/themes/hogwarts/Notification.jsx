@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PlayerControls from '../../components/PlayerControls'
 import ProgressBar from '../../components/ProgressBar'
 import VolumeSlider from '../../components/VolumeSlider'
 import { IconClose } from '../../components/Icons'
 
-// ─── CSS global inyectado una vez ───────────────────────────────────────────
+
 const GLOBAL_CSS = `
 @keyframes tb-candle {
   0%,100% { transform: scaleX(1) rotate(0deg); opacity: .85; }
@@ -48,11 +48,14 @@ const GLOBAL_CSS = `
   94%         { opacity: 0; }
   96%         { opacity: 0.5; }
 }
+@keyframes tb-magic-ring {
+  0%   { transform: rotate(0deg) scale(1.05); opacity: 0.3; }
+  50%  { opacity: 0.6; }
+  100% { transform: rotate(360deg) scale(1.05); opacity: 0.3; }
+}
 `
 
-// ─── Partículas mágicas (12 tipos distintos) ─────────────────────────────────
 const SPARKS = [
-  // id, left%, size, delayS, durS, color, sx(translateX final en px), shape
   { id:0,  l:7,   sz:3, d:0,   dr:4.2, c:'#FFD700', sx:-10, shape:'circle'  },
   { id:1,  l:17,  sz:2, d:0.6, dr:3.8, c:'#F0C040', sx:14,  shape:'diamond' },
   { id:2,  l:29,  sz:3, d:1.3, dr:5.1, c:'#C9A84C', sx:-6,  shape:'circle'  },
@@ -67,6 +70,27 @@ const SPARKS = [
   { id:11, l:71,  sz:2, d:0.4, dr:5.0, c:'#C9A84C', sx:6,   shape:'star'    },
 ]
 
+// ─── Castillo de Hogwarts miniatura ─────────────────────────────────────────
+function MiniCastle({ opacity = 0.18, width = 90 }) {
+  // hogwarts-transparent.svg ya no tiene el rect de fondo blanco
+  // sepia+hue-rotate convierte el negro del castillo en dorado
+  return (
+    <img
+      src="./assets/hogwarts-transparent.svg"
+      width={width}
+      height={width}
+      alt=""
+      draggable={false}
+      style={{
+          pointerEvents: 'none',
+          opacity: 1,
+          filter: 'sepia(1) hue-rotate(5deg) saturate(4) brightness(4.5)',
+          objectFit: 'contain',
+          display: 'block',
+        }}
+    />
+  )
+}
 function Spark({ s }) {
   const isCircle  = s.shape === 'circle'
   const isDiamond = s.shape === 'diamond'
@@ -223,9 +247,224 @@ function TrackInfo({ name, artist, trackId }) {
   )
 }
 
+
+// ─── Mini controles de aleatorio y loop ──────────────────────────────────────
+function ModeButtons() {
+  const [shuffle, setShuffle] = useState(false)
+  const [repeat, setRepeat] = useState('off') // 'off' | 'context' | 'track'
+
+  useEffect(() => {
+    // Sincronizar estado inicial con el store (via fetchPlayerState del renderer)
+    const sync = async () => {
+      try {
+        const token = await window.electronAPI?.getValidToken?.()
+        if (!token) return
+        const res = await fetch('https://api.spotify.com/v1/me/player', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        setShuffle(!!data.shuffle_state)
+        setRepeat(data.repeat_state || 'off')
+      } catch {}
+    }
+    sync()
+  }, [])
+
+  const toggleShuffle = async () => {
+    const next = !shuffle
+    setShuffle(next)
+    try {
+      const token = await window.electronAPI?.getValidToken?.()
+      await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=${next}`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` }
+      })
+    } catch {}
+  }
+
+  const cycleRepeat = async () => {
+    const next = repeat === 'off' ? 'context' : repeat === 'context' ? 'track' : 'off'
+    setRepeat(next)
+    try {
+      const token = await window.electronAPI?.getValidToken?.()
+      await fetch(`https://api.spotify.com/v1/me/player/repeat?state=${next}`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` }
+      })
+    } catch {}
+  }
+
+  const btn = (active, onClick, label, title) => (
+    <motion.button onClick={onClick} title={title}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px',
+        borderRadius: 6, fontSize: 10,
+        color: active ? '#F0C040' : 'rgba(245,230,200,0.28)',
+        transition: 'color 0.18s',
+        display: 'flex', alignItems: 'center', gap: 2,
+      }}
+      whileHover={{ color: active ? '#FFD700' : 'rgba(245,230,200,0.7)' }}
+      whileTap={{ scale: 0.85 }}
+    >
+      {active && <span style={{ width:4, height:4, borderRadius:'50%', background:'#F0C040', display:'inline-block', boxShadow:'0 0 6px #F0C040', flexShrink:0 }} />}
+      {label}
+    </motion.button>
+  )
+
+  return (
+    <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+      {btn(shuffle, toggleShuffle, '⇀⇁', 'Aleatorio')}
+      {btn(repeat !== 'off', cycleRepeat,
+        repeat === 'track' ? '↻¹' : '↻',
+        repeat === 'off' ? 'Sin repetir' : repeat === 'context' ? 'Repitiendo playlist' : 'Repitiendo canción'
+      )}
+    </div>
+  )
+}
+
+// ─── Panel expandible (cola + búsqueda rápida) ───────────────────────────────
+function ExpandedPanel({ onPlayUri, onAddToQueue }) {
+  const [queue, setQueue] = useState(null)
+  const [search, setSearch] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searching, setSearching] = useState(false)
+  const inputRef = useRef(null)
+  const timerRef = useRef(null)
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 120)
+    // Cargar cola actual
+    window.electronAPI?.getQueue?.().then(res => {
+      const items = res?.queue ?? []
+      setQueue(items.slice(0, 8).map(i => ({
+        uri: i.uri, name: i.name,
+        artist: i.artists?.map(a => a.name).join(', ') || '',
+        albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
+      })))
+    }).catch(() => setQueue([]))
+    return () => clearTimeout(timerRef.current)
+  }, [])
+
+  // Búsqueda con debounce vía IPC
+  useEffect(() => {
+    clearTimeout(timerRef.current)
+    if (!search.trim()) { setSearchResults(null); return }
+    timerRef.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const res = await window.electronAPI?.searchTracks?.(search.trim())
+        const items = res?.tracks?.items ?? []
+        setSearchResults(items.slice(0, 6).map(i => ({
+          uri: i.uri, name: i.name,
+          artist: i.artists?.map(a => a.name).join(', ') || '',
+          albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
+        })))
+      } catch { setSearchResults([]) }
+      setSearching(false)
+    }, 380)
+  }, [search])
+
+  const showQueue = !search.trim()
+  const items = showQueue ? (queue || []) : (searchResults || [])
+
+  return (
+    <div style={{
+      flex: 1, overflow: 'hidden',
+      background: 'linear-gradient(160deg, #0d0720 0%, #0b0b1e 100%)',
+      borderRadius: '14px 14px 0 0',
+      borderBottom: '1px solid rgba(201,168,76,0.12)',
+      display: 'flex', flexDirection: 'column',
+      padding: '8px 8px 4px',
+    }}>
+      {/* Buscador rápido */}
+      <div style={{ position: 'relative', marginBottom: 6, flexShrink: 0 }}>
+        <span style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'rgba(201,168,76,0.45)', pointerEvents: 'none' }}>🔍</span>
+        <input
+          ref={inputRef}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar canción..."
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '5px 8px 5px 22px',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(201,168,76,0.22)',
+            borderRadius: 8, outline: 'none',
+            fontSize: 11, color: 'rgba(245,230,200,0.9)',
+            fontFamily: 'inherit',
+          }}
+        />
+        {searching && (
+          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7, ease: 'linear' }}
+            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+              width: 10, height: 10, border: '2px solid rgba(201,168,76,0.2)',
+              borderTopColor: '#C9A84C', borderRadius: '50%' }}
+          />
+        )}
+      </div>
+
+      <p style={{ fontSize: 8, color: 'rgba(201,168,76,0.38)', letterSpacing: 1, marginBottom: 3, flexShrink: 0 }}>
+        {showQueue ? 'SIGUIENTE EN COLA' : 'RESULTADOS'}
+      </p>
+
+      {/* Lista */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {showQueue && queue === null && (
+          <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Cargando cola...</p>
+        )}
+        {showQueue && queue !== null && queue.length === 0 && (
+          <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Cola vacía</p>
+        )}
+        {!showQueue && !searching && searchResults?.length === 0 && (
+          <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Sin resultados</p>
+        )}
+        {items.map((t, i) => (
+          <div key={t.uri + i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', borderRadius: 7 }}>
+            {t.albumArt
+              ? <img src={t.albumArt} alt="" style={{ width: 26, height: 26, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+              : <div style={{ width: 26, height: 26, borderRadius: 4, background: 'rgba(201,168,76,0.08)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>🎵</div>
+            }
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <p style={{ fontSize: 10, color: '#F5E6C8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</p>
+              <p style={{ fontSize: 9, color: 'rgba(245,230,200,0.38)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.artist}</p>
+            </div>
+            {/* Acciones: reproducir + agregar a cola */}
+            <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+              <motion.button onClick={() => onAddToQueue(t.uri)} title="Añadir a cola"
+                style={{ background: 'none', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 5, cursor: 'pointer',
+                  color: 'rgba(201,168,76,0.5)', fontSize: 9, padding: '2px 5px', lineHeight: 1 }}
+                whileHover={{ color: '#F0C040', borderColor: 'rgba(201,168,76,0.6)', background: 'rgba(201,168,76,0.08)' }}
+                whileTap={{ scale: 0.85 }}
+              >+cola</motion.button>
+              <motion.button onClick={() => onPlayUri(t.uri)} title="Reproducir ahora"
+                style={{ background: 'none', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 5, cursor: 'pointer',
+                  color: 'rgba(201,168,76,0.5)', fontSize: 9, padding: '2px 5px', lineHeight: 1 }}
+                whileHover={{ color: '#F0C040', borderColor: 'rgba(201,168,76,0.6)', background: 'rgba(201,168,76,0.08)' }}
+                whileTap={{ scale: 0.85 }}
+              >▶</motion.button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 export default function HogwartsNotification({ track, isVisible, onClose, onExitComplete }) {
   const [isHovered, setIsHovered] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
+  const toggleExpand = useCallback(() => {
+    const next = !isExpanded
+    setIsExpanded(next)
+    window.electronAPI?.resizeNotification?.(next)
+    if (!next) {
+      // Al colapsar, reanudar el timer si estaba corriendo
+      window.electronAPI?.resumeNotificationTimer?.()
+    } else {
+      // Al expandir, detener el timer para que no se oculte
+      window.electronAPI?.resetNotificationTimer?.()
+    }
+  }, [isExpanded])
 
   const handleMouseEnter = useCallback(() => {
     setIsHovered(true)
@@ -234,8 +473,17 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
 
   const handleMouseLeave = useCallback(() => {
     setIsHovered(false)
-    window.electronAPI?.resumeNotificationTimer()
+    if (!isExpanded) window.electronAPI?.resumeNotificationTimer()
+  }, [isExpanded])
+
+  const handlePlayUri = useCallback(async (uri) => {
+    try { await window.electronAPI?.playTrack?.(uri) } catch {}
   }, [])
+
+  const handleAddToQueue = useCallback(async (uri) => {
+    try { await window.electronAPI?.addToQueue?.(uri) } catch {}
+  }, [])
+
 
   const cardVariants = {
     initial: { y: 55, x: 8, opacity: 0, scale: 0.8, filter: 'blur(10px)', rotateX: 12 },
@@ -266,11 +514,21 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
               key={track.id}
               variants={cardVariants}
               initial="initial" animate="animate" exit="exit"
-              style={{ width: '100%', height: '100%', position: 'relative' }}
+              style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}
             >
-              {/* ── Contenedor principal ── */}
+              {/* Panel expandido — encima, en flujo normal */}
+              <AnimatePresence>
+                {isExpanded && (
+                  <ExpandedPanel
+                    onPlayUri={handlePlayUri}
+                    onAddToQueue={handleAddToQueue}
+                  />
+                )}
+              </AnimatePresence>
+
+              {/* ── Card principal — siempre 160px al fondo ── */}
               <div style={{
-                width: '100%', height: '100%',
+                width: '100%', height: 160, flexShrink: 0,
                 position: 'relative', overflow: 'hidden', borderRadius: 14,
                 background: `
                   radial-gradient(ellipse at 5% 0%,   rgba(201,168,76,0.18) 0%, transparent 50%),
@@ -373,6 +631,14 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
                   />
                 )}
 
+                {/* ── Castillo de Hogwarts decorativo ── */}
+                <div style={{
+                  position: 'absolute', top: 10, right: 20, zIndex: 5,
+                  pointerEvents: 'none', opacity: 0.7,
+                }}>
+                  <MiniCastle width={88} opacity={0.28} />
+                </div>
+
                 {/* ── Layout interior ── */}
                 <div style={{
                   position: 'relative', zIndex: 12,
@@ -404,12 +670,40 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
                       transition={{ delay: 0.22 }}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                     >
-                      <PlayerControls size="sm" />
-                      <VolumeSlider />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <PlayerControls size="sm" />
+                        <ModeButtons />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <VolumeSlider />
+                        {/* Botón expandir/colapsar — visible al hacer hover */}
+                        {/* <AnimatePresence>
+                          {isHovered && (
+                            <motion.button
+                              initial={{ opacity: 0, scale: 0.7 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.7 }}
+                              onClick={toggleExpand}
+                              title={isExpanded ? 'Colapsar' : 'Ver cola y buscar'}
+                              style={{
+                                background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)',
+                                borderRadius: 6, cursor: 'pointer', padding: '3px 7px',
+                                color: isExpanded ? '#F0C040' : 'rgba(245,230,200,0.5)',
+                                fontSize: 11, lineHeight: 1, transition: 'all 0.15s',
+                              }}
+                              whileHover={{ color: '#F0C040', borderColor: 'rgba(201,168,76,0.7)', background: 'rgba(201,168,76,0.15)' }}
+                              whileTap={{ scale: 0.85 }}
+                            >
+                              {isExpanded ? '▼' : '▲'}
+                            </motion.button>
+                          )}
+                        </AnimatePresence> */}
+                      </div>
                     </motion.div>
                   </div>
 
               </div>
+
             </div>
           </motion.div>
           )}

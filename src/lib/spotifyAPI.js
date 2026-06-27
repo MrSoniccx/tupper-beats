@@ -5,6 +5,12 @@
 const BASE = 'https://api.spotify.com/v1'
 
 async function getToken() {
+  // Usa el main process para obtener un token válido (con auto-refresh)
+  // Fallback a storeGet por si el IPC aún no está listo
+  try {
+    const valid = await window.electronAPI?.getValidToken?.()
+    if (valid) return valid
+  } catch {}
   return window.electronAPI?.storeGet('spotifyAccessToken', null)
 }
 
@@ -54,7 +60,7 @@ export async function fetchPlaylists(offset = 0) {
 }
 
 export async function fetchPlaylistTracks(playlistId, offset = 0) {
-  return spotifyGet(`/playlists/${playlistId}/tracks?limit=100&offset=${offset}`)
+  return spotifyGet(`/playlists/${playlistId}/tracks?limit=1&offset=${offset}`)
 }
 
 export async function fetchAlbumTracks(albumId, offset = 0) {
@@ -101,4 +107,52 @@ export async function setRepeat(state) {
 // ─── Volumen ──────────────────────────────────────────────────────────────────
 export async function setVolume(volumePercent) {
   return spotifyPost(`/me/player/volume?volume_percent=${Math.floor(volumePercent)}`, 'PUT')
+}
+
+// ─── Carga TODAS las canciones guardadas (paginación automática) ──────────────
+export async function fetchAllSavedTracks(onProgress) {
+  const all = []
+  let offset = 0
+  let total = Infinity
+  while (offset < total) {
+    const res = await fetchSavedTracks(offset)
+    if (!res?.items) break
+    total = res.total ?? total
+    const batch = res.items.filter(i => i.track).map(i => ({
+      uri: i.track.uri, name: i.track.name,
+      artist: i.track.artists.map(a => a.name).join(', '),
+      albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
+      duration: i.track.duration_ms,
+    }))
+    all.push(...batch)
+    offset += res.items.length
+    if (onProgress) onProgress(all.length, total)
+    if (res.items.length < 50) break
+  }
+  return all
+}
+
+// ─── Carga TODAS las canciones de una playlist (paginación automática) ────────
+export async function fetchAllPlaylistTracks(playlistId, onProgress) {
+  const all = []
+  let offset = 0
+  let total = Infinity
+  while (offset < total) {
+    const res = await spotifyGet(`/playlists/${playlistId}/tracks?limit=100&offset=${offset}`)
+    if (!res?.items) break
+    total = res.total ?? total
+    const batch = res.items
+      .filter(i => i.track && i.track.uri)
+      .map(i => ({
+        uri: i.track.uri, name: i.track.name,
+        artist: i.track.artists?.map(a => a.name).join(', ') || '',
+        albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
+        duration: i.track.duration_ms,
+      }))
+    all.push(...batch)
+    offset += res.items.length
+    if (onProgress) onProgress(all.length, total)
+    if (res.items.length < 100) break
+  }
+  return all
 }
