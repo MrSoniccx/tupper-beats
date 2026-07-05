@@ -83,10 +83,13 @@ async function getValidToken(store) {
 }
 
 // ─── Currently playing ─────────────────────────────────────────────────────
+// Usamos /v1/me/player (en vez de /currently-playing) porque también trae
+// shuffle_state y repeat_state — así el polling puede mantener sincronizados
+// los botones de aleatorio/repetir en TODAS las ventanas (principal y notificación).
 async function getCurrentlyPlaying(token) {
   const options = {
     hostname: 'api.spotify.com',
-    path:     '/v1/me/player/currently-playing',
+    path:     '/v1/me/player',
     method:   'GET',
     headers: { Authorization: `Bearer ${token}` },
   }
@@ -194,6 +197,8 @@ function startSpotifyPolling(store, onTrackChange) {
       progress:  data.progress_ms,
       isPlaying: data.is_playing,
       explicit:  data.item.explicit,
+      shuffle:   !!data.shuffle_state,
+      repeat:    data.repeat_state || 'off',
     }
 
     if (track.id !== lastTrackId) {

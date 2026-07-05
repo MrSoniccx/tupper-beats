@@ -7,7 +7,7 @@ import NotificationPage from './pages/Notification'
 import SplashScreen from './pages/SplashScreen'
 
 export default function App() {
-  const { isAuthenticated, loadSettings, setCurrentTrack, setIsPlaying, setProgress } = useAppStore()
+  const { isAuthenticated, loadSettings, setCurrentTrack, setIsPlaying, setProgress, setShuffle, setRepeatMode } = useAppStore()
 
   useEffect(() => {
     loadSettings()
@@ -19,6 +19,10 @@ export default function App() {
       }
       setIsPlaying(track.isPlaying)
       setProgress(track.progress)
+      // El polling trae shuffle/repeat en cada tick — mantiene sincronizados
+      // los controles de esta ventana con la ventana de notificación y con Spotify.
+      if (track.shuffle !== undefined) setShuffle(track.shuffle)
+      if (track.repeat !== undefined) setRepeatMode(track.repeat)
     })
 
     // Escuchar callback OAuth

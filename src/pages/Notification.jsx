@@ -3,7 +3,7 @@ import useAppStore from '../store/useAppStore'
 import HogwartsNotification from '../themes/hogwarts/Notification'
 
 export default function NotificationPage() {
-  const { currentTrack, setCurrentTrack, setIsPlaying, setProgress } = useAppStore()
+  const { currentTrack, setCurrentTrack, setIsPlaying, setProgress, setShuffle, setRepeatMode } = useAppStore()
   const [isVisible, setIsVisible] = useState(true)
   const shouldHideOnExit = useRef(false)
 
@@ -17,6 +17,9 @@ export default function NotificationPage() {
       }
       setIsPlaying(track.isPlaying)
       setProgress(track.progress)
+      // Mismo estado de shuffle/repeat que la ventana principal, en cada tick del polling
+      if (track.shuffle !== undefined) setShuffle(track.shuffle)
+      if (track.repeat !== undefined) setRepeatMode(track.repeat)
     })
 
     // El main nos avisa que el timer de auto-hide expiró → animar salida

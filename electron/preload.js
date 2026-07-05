@@ -48,6 +48,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   broadcastVolume: (vol) => ipcRenderer.send('volume-changed', vol),
 
+  // Sincronizar shuffle/repeat al instante entre ventana principal y notificación
+  onPlaybackModeChanged: (cb) => ipcRenderer.on('playback-mode-changed', (_, data) => cb(data)),
+  broadcastPlaybackMode: (data) => ipcRenderer.send('playback-mode-changed', data),
+
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
 
   // Token válido (con auto-refresh via main process)

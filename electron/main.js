@@ -322,22 +322,49 @@ ipcMain.on('update-notification-settings', (_, settings) => {
   if (settings.screen !== undefined) { store.set('notificationScreen', settings.screen) }
 })
 
+// ─── Animación suave de resize de ventana (evita el "salto" brusco) ─────────
+let notifResizeAnimId = 0
+function animateWindowBounds(win, from, to, duration = 260) {
+  const myId = ++notifResizeAnimId
+  const start = Date.now()
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3)
+  return new Promise((resolve) => {
+    function step() {
+      // Si se disparó otra animación más nueva (el usuario hizo doble click rápido), abortar ésta
+      if (myId !== notifResizeAnimId || !win || win.isDestroyed()) return resolve()
+      const t = Math.min(1, (Date.now() - start) / duration)
+      const e = easeOutCubic(t)
+      try {
+        win.setBounds({
+          x:      Math.round(from.x      + (to.x      - from.x)      * e),
+          y:      Math.round(from.y      + (to.y      - from.y)      * e),
+          width:  Math.round(from.width  + (to.width  - from.width)  * e),
+          height: Math.round(from.height + (to.height - from.height) * e),
+        })
+      } catch { return resolve() }
+      if (t < 1) setTimeout(step, 12)
+      else resolve()
+    }
+    step()
+  })
+}
+
 // Redimensionar la notificación (para el panel expandible)
-ipcMain.on('resize-notification', (_, expanded) => {
+ipcMain.on('resize-notification', async (_, expanded) => {
   if (!notificationWindow || notificationWindow.isDestroyed()) return
   const normalH = 160, expandH = 370, ww = 380
   const { x, y } = getNotificationBounds()
   const position = store.get('notificationPosition', 'bottom-right')
+  const current = notificationWindow.getBounds()
+
   if (expanded) {
-    notificationWindow.setSize(ww, expandH)
     const newY = (position === 'bottom-right' || position === 'bottom-left')
       ? y - (expandH - normalH)
       : y
-    notificationWindow.setPosition(x, newY)
     try { notificationWindow.setFocusable(true) } catch {}
+    await animateWindowBounds(notificationWindow, current, { x, y: newY, width: ww, height: expandH })
   } else {
-    notificationWindow.setSize(ww, normalH)
-    notificationWindow.setPosition(x, y)
+    await animateWindowBounds(notificationWindow, current, { x, y, width: ww, height: normalH })
     try { notificationWindow.setFocusable(false) } catch {}
   }
 })
@@ -402,6 +429,15 @@ ipcMain.on('volume-changed', (event, vol) => {
   BrowserWindow.getAllWindows().forEach(win => {
     if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
       win.webContents.send('volume-changed', vol)
+    }
+  })
+})
+
+// IPC: sincronizar shuffle/repeat al instante entre ventanas (además del polling)
+ipcMain.on('playback-mode-changed', (event, data) => {
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
+      win.webContents.send('playback-mode-changed', data)
     }
   })
 })

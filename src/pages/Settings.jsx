@@ -248,7 +248,12 @@ function GlobalSearch() {
   }
 
   const ResultRow = ({ track, badge }) => (
-    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 10px', borderRadius:8 }}>
+    <div onClick={() => handlePlay(track.uri)}
+      className="no-drag"
+      style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 10px', borderRadius:8, cursor:'pointer', transition:'background 0.15s' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(201,168,76,0.08)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+    >
       {track.albumArt
         ? <img src={track.albumArt} alt="" style={{ width:28, height:28, borderRadius:5, objectFit:'cover', flexShrink:0 }} />
         : <div style={{ width:28, height:28, borderRadius:5, background:'rgba(201,168,76,0.08)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>🎵</div>
@@ -271,13 +276,6 @@ function GlobalSearch() {
           whileHover={{ color:'#F0C040', borderColor:'rgba(201,168,76,0.6)', background:'rgba(201,168,76,0.08)' }}
           whileTap={{ scale:0.85 }}
         >+cola</motion.button>
-        <motion.button onClick={e => { e.stopPropagation(); handlePlay(track.uri) }}
-          title="Reproducir ahora"
-          style={{ background:'none', border:'1px solid rgba(201,168,76,0.2)', borderRadius:5,
-            cursor:'pointer', color:'rgba(201,168,76,0.5)', fontSize:9, padding:'2px 6px', lineHeight:1 }}
-          whileHover={{ color:'#F0C040', borderColor:'rgba(201,168,76,0.6)', background:'rgba(201,168,76,0.08)' }}
-          whileTap={{ scale:0.85 }}
-        >▶</motion.button>
       </div>
     </div>
   )
@@ -787,12 +785,22 @@ function PlaybackModeControls() {
   const { shuffle, setShuffle, repeatMode:repeat, setRepeatMode:setRepeat } = useAppStore()
   useEffect(() => {
     fetchPlayerState().then(s => { if (s) { setShuffle(s.shuffle); setRepeat(s.repeat) } })
+    // Sincronización instantánea si el cambio viene de la ventana de notificación
+    window.electronAPI?.onPlaybackModeChanged?.((data) => {
+      if (data?.shuffle !== undefined) setShuffle(data.shuffle)
+      if (data?.repeat  !== undefined) setRepeat(data.repeat)
+    })
+    return () => window.electronAPI?.removeAllListeners?.('playback-mode-changed')
   }, [])
 
-  const toggleShuffle = async () => { const n=!shuffle; setShuffle(n); await apiSetShuffle(n) }
+  const toggleShuffle = async () => {
+    const n=!shuffle; setShuffle(n); await apiSetShuffle(n)
+    window.electronAPI?.broadcastPlaybackMode?.({ shuffle: n })
+  }
   const cycleRepeat   = async () => {
     const n = repeat==='off' ? 'context' : repeat==='context' ? 'track' : 'off'
     setRepeat(n); await apiSetRepeat(n)
+    window.electronAPI?.broadcastPlaybackMode?.({ repeat: n })
   }
 
   const btn = (active, onClick, children, title) => (
@@ -870,7 +878,7 @@ async function ipcLoadAllTracks(onProgress) {
 }
 
 function PlayerSection({ track }) {
-  const { playUri, playTrackInContext } = useSpotifyControls()
+  const { playUri, playTrackInContext, playQueueIndex } = useSpotifyControls()
 
   // Cache permanente desde Zustand
   const {
@@ -911,11 +919,12 @@ function PlayerSection({ track }) {
     fetchQueue().then(res => {
       if (cancelled) return
       if (res?.queue) {
-        setQueue(res.queue.slice(0,30).map(i => ({
+        setQueue(res.queue.slice(0,30).map((i, idx) => ({
           uri:i.uri, name:i.name,
           artist:i.artists?.map(a=>a.name).join(', ')||'',
           albumArt:i.album?.images?.[1]?.url||i.album?.images?.[0]?.url||'',
           duration:i.duration_ms,
+          queueIndex: idx, // posición real en la cola (0 = la próxima) — usado para "adelantar" en vez de reemplazar la reproducción
         })))
       } else setQueue([])
       setLoading(false)
@@ -1063,6 +1072,12 @@ function PlayerSection({ track }) {
     else await playUri(uri)
   }, [playUri, playTrackInContext])
 
+  // Tocar una canción DESDE LA COLA adelanta la cola actual hasta ese punto,
+  // en vez de reemplazarla por esa canción sola (que "mataba" el resto de la cola).
+  const handlePlayFromQueue = useCallback(async (queueIndex) => {
+    await playQueueIndex(queueIndex)
+  }, [playQueueIndex])
+
   const filterByQuery = useCallback((items, fields=['name','artist']) => {
     if (!query.trim()) return items
     const q = query.toLowerCase()
@@ -1137,7 +1152,7 @@ function PlayerSection({ track }) {
       {/* Tab: Ahora */}
       {tab === 'now' && (
         <div className="space-y-2">
-          <Card title="Reproduciendo ahora" icon={IconMusic}> 
+          <Card title="Reproduciendo ahora" icon={IconMusic} glowing> 
             {!track
               ? <div style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'28px 0', gap:12 }}>
                   <motion.div animate={{ rotate:[0,5,-5,0], scale:[1,1.08,1] }}
@@ -1241,7 +1256,11 @@ function PlayerSection({ track }) {
               : <>
                   <SearchInput value={query} onChange={setQuery} placeholder="Buscar en cola..." />
                   <div style={{ maxHeight:220, overflowY:'auto' }}>
-                    {filterByQuery(queue).map((t,i) => <TrackRow key={t.uri+i} track={t} index={i} onPlay={handlePlay} />)}
+                    {filterByQuery(queue).map((t,i) => (
+                      <TrackRow key={t.uri+i} track={t} index={i}
+                        onPlay={() => handlePlayFromQueue(t.queueIndex)}
+                      />
+                    ))}
                     {filterByQuery(queue).length===0 && <Empty text={"Sin resultados para " + query} />}
                   </div>
                 </>

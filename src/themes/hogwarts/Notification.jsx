@@ -3,7 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion'
 import PlayerControls from '../../components/PlayerControls'
 import ProgressBar from '../../components/ProgressBar'
 import VolumeSlider from '../../components/VolumeSlider'
-import { IconClose } from '../../components/Icons'
+import { IconClose, IconShuffle, IconRepeatContext, IconRepeatOne, IconQueueAdd, IconCheck } from '../../components/Icons'
+import useAppStore from '../../store/useAppStore'
+import { useSpotifyControls } from '../../components/useSpotifyControls'
+import {
+  fetchPlayerState, setShuffle as apiSetShuffle, setRepeat as apiSetRepeat,
+  fetchQueue, searchSpotify, addToQueue as apiAddToQueue, fetchSavedTracks,
+} from '../../lib/spotifyAPI'
 
 
 const GLOBAL_CSS = `
@@ -249,122 +255,247 @@ function TrackInfo({ name, artist, trackId }) {
 
 
 // ─── Mini controles de aleatorio y loop ──────────────────────────────────────
+// Usa el mismo store y las mismas funciones de API que el reproductor en grande
+// (PlaybackModeControls en Settings.jsx) para que ambos queden siempre sincronizados.
 function ModeButtons() {
-  const [shuffle, setShuffle] = useState(false)
-  const [repeat, setRepeat] = useState('off') // 'off' | 'context' | 'track'
+  const { shuffle, setShuffle, repeatMode: repeat, setRepeatMode: setRepeat } = useAppStore()
 
   useEffect(() => {
-    // Sincronizar estado inicial con el store (via fetchPlayerState del renderer)
-    const sync = async () => {
-      try {
-        const token = await window.electronAPI?.getValidToken?.()
-        if (!token) return
-        const res = await fetch('https://api.spotify.com/v1/me/player', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (!res.ok) return
-        const data = await res.json()
-        setShuffle(!!data.shuffle_state)
-        setRepeat(data.repeat_state || 'off')
-      } catch {}
-    }
-    sync()
+    fetchPlayerState().then(s => { if (s) { setShuffle(s.shuffle); setRepeat(s.repeat) } })
+    // Sincronización instantánea si el cambio viene de la ventana principal
+    window.electronAPI?.onPlaybackModeChanged?.((data) => {
+      if (data?.shuffle !== undefined) setShuffle(data.shuffle)
+      if (data?.repeat  !== undefined) setRepeat(data.repeat)
+    })
+    return () => window.electronAPI?.removeAllListeners?.('playback-mode-changed')
   }, [])
 
   const toggleShuffle = async () => {
-    const next = !shuffle
-    setShuffle(next)
-    try {
-      const token = await window.electronAPI?.getValidToken?.()
-      await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=${next}`, {
-        method: 'PUT', headers: { Authorization: `Bearer ${token}` }
-      })
-    } catch {}
+    const n = !shuffle
+    setShuffle(n); await apiSetShuffle(n)
+    window.electronAPI?.broadcastPlaybackMode?.({ shuffle: n })
   }
 
   const cycleRepeat = async () => {
-    const next = repeat === 'off' ? 'context' : repeat === 'context' ? 'track' : 'off'
-    setRepeat(next)
-    try {
-      const token = await window.electronAPI?.getValidToken?.()
-      await fetch(`https://api.spotify.com/v1/me/player/repeat?state=${next}`, {
-        method: 'PUT', headers: { Authorization: `Bearer ${token}` }
-      })
-    } catch {}
+    const n = repeat === 'off' ? 'context' : repeat === 'context' ? 'track' : 'off'
+    setRepeat(n); await apiSetRepeat(n)
+    window.electronAPI?.broadcastPlaybackMode?.({ repeat: n })
   }
 
-  const btn = (active, onClick, label, title) => (
+  const btn = (active, onClick, children, title) => (
     <motion.button onClick={onClick} title={title}
       style={{
-        background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px',
-        borderRadius: 6, fontSize: 10,
+        background: active ? 'rgba(201,168,76,0.12)' : 'none',
+        border: `1px solid ${active ? 'rgba(201,168,76,0.4)' : 'transparent'}`,
+        cursor: 'pointer', padding: '4px 5px',
+        borderRadius: 6,
         color: active ? '#F0C040' : 'rgba(245,230,200,0.28)',
-        transition: 'color 0.18s',
-        display: 'flex', alignItems: 'center', gap: 2,
+        transition: 'all 0.18s',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: active ? '0 0 8px rgba(201,168,76,0.18)' : 'none',
       }}
       whileHover={{ color: active ? '#FFD700' : 'rgba(245,230,200,0.7)' }}
       whileTap={{ scale: 0.85 }}
     >
-      {active && <span style={{ width:4, height:4, borderRadius:'50%', background:'#F0C040', display:'inline-block', boxShadow:'0 0 6px #F0C040', flexShrink:0 }} />}
-      {label}
+      {children}
     </motion.button>
   )
 
   return (
     <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-      {btn(shuffle, toggleShuffle, '⇀⇁', 'Aleatorio')}
+      {btn(shuffle, toggleShuffle, <IconShuffle size={12} />, 'Aleatorio')}
       {btn(repeat !== 'off', cycleRepeat,
-        repeat === 'track' ? '↻¹' : '↻',
+        repeat === 'track' ? <IconRepeatOne size={12} /> : <IconRepeatContext size={12} />,
         repeat === 'off' ? 'Sin repetir' : repeat === 'context' ? 'Repitiendo playlist' : 'Repitiendo canción'
       )}
     </div>
   )
 }
 
+// ─── Cache de "Me gusta" para esta ventana (se carga una sola vez, bajo demanda) ──
+// La ventana de notificación es un renderer aparte del principal, así que no comparte
+// el store de Zustand ni el cache de canciones guardadas — mantenemos uno propio aquí,
+// a nivel de módulo, para que sobreviva a que el panel se colapse/expanda.
+// Se limita a las primeras ~300 canciones (en vez de la biblioteca completa) y sólo
+// se dispara la primera vez que el usuario escribe algo — traer TODA la biblioteca
+// de golpe podía saturar la API de Spotify con decenas de requests seguidos y hacer
+// fallar (o retrasar mucho) la búsqueda y otras llamadas que se hacían al mismo tiempo.
+let likedCache = null
+let likedCachePromise = null
+function ensureLikedCache(maxTracks = 300) {
+  if (likedCache) return Promise.resolve(likedCache)
+  if (!likedCachePromise) {
+    likedCachePromise = (async () => {
+      const all = []
+      let offset = 0
+      while (all.length < maxTracks) {
+        let res
+        try { res = await fetchSavedTracks(offset) } catch { break }
+        if (!res?.items?.length) break
+        all.push(...res.items.filter(i => i.track).map(i => ({
+          uri: i.track.uri, name: i.track.name,
+          artist: i.track.artists.map(a => a.name).join(', '),
+          albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
+        })))
+        offset += res.items.length
+        if (res.items.length < 50) break
+      }
+      likedCache = all
+      return likedCache
+    })()
+  }
+  return likedCachePromise
+}
+
+const matchesQuery = (t, q) =>
+  t.name?.toLowerCase().includes(q) || t.artist?.toLowerCase().includes(q)
+
+// ─── Fila de resultado — clickear la fila reproduce, el botón sólo encola ────
+// Si la fila viene de la cola (track.queueIndex definido) y se pasa onPlayQueueIndex,
+// clickearla ADELANTA la cola actual hasta ese punto en vez de reemplazar la
+// reproducción por esa canción sola.
+function NotifResultRow({ track, badge, onPlay, onAddToQueue, onPlayQueueIndex }) {
+  const [queued, setQueued] = useState(false)
+  const addQ = (e) => {
+    e.stopPropagation()
+    onAddToQueue(track.uri)
+    setQueued(true)
+    setTimeout(() => setQueued(false), 1500)
+  }
+  const handleRowClick = () => {
+    if (onPlayQueueIndex && track.queueIndex !== undefined) onPlayQueueIndex(track.queueIndex)
+    else onPlay(track.uri)
+  }
+  return (
+    <motion.div
+      onClick={handleRowClick}
+      whileHover={{ backgroundColor: 'rgba(201,168,76,0.09)' }}
+      whileTap={{ scale: 0.99 }}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', borderRadius: 7, cursor: 'pointer' }}
+    >
+      {track.albumArt
+        ? <img src={track.albumArt} alt="" style={{ width: 26, height: 26, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+        : <div style={{ width: 26, height: 26, borderRadius: 4, background: 'rgba(201,168,76,0.08)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>🎵</div>
+      }
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <p style={{ fontSize: 10, color: '#F5E6C8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{track.name}</p>
+        <p style={{ fontSize: 9, color: 'rgba(245,230,200,0.38)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{track.artist}</p>
+      </div>
+      {badge && (
+        <span style={{ fontSize: 7, color: '#F0C040', background: 'rgba(201,168,76,0.15)',
+          border: '1px solid rgba(201,168,76,0.3)', borderRadius: 4, padding: '1px 4px', flexShrink: 0,
+        }}>{badge}</span>
+      )}
+      {/* Acción: sólo agregar a cola — la fila entera reproduce */}
+      <motion.button onClick={addQ} title="Añadir a cola"
+        style={{ background: queued ? 'rgba(74,222,128,0.12)' : 'none',
+          border: `1px solid ${queued ? 'rgba(74,222,128,0.4)' : 'rgba(201,168,76,0.2)'}`, borderRadius: 5, cursor: 'pointer',
+          color: queued ? '#4ade80' : 'rgba(201,168,76,0.5)', fontSize: 9, padding: '2px 5px', lineHeight: 1, flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: 2,
+        }}
+        whileHover={{ color: queued ? '#4ade80' : '#F0C040', borderColor: queued ? 'rgba(74,222,128,0.4)' : 'rgba(201,168,76,0.6)', background: queued ? 'rgba(74,222,128,0.12)' : 'rgba(201,168,76,0.08)' }}
+        whileTap={{ scale: 0.85 }}
+      >
+        {queued ? <IconCheck size={9} /> : <IconQueueAdd size={9} />}
+      </motion.button>
+    </motion.div>
+  )
+}
+
+function SectionLabel({ children }) {
+  return (
+    <p style={{ fontSize: 8, color: 'rgba(201,168,76,0.38)', letterSpacing: 1, margin: '6px 0 3px', flexShrink: 0 }}>
+      {children}
+    </p>
+  )
+}
+
 // ─── Panel expandible (cola + búsqueda rápida) ───────────────────────────────
-function ExpandedPanel({ onPlayUri, onAddToQueue }) {
-  const [queue, setQueue] = useState(null)
+// Misma jerarquía que el buscador global de la ventana principal, pero con un
+// nivel extra: 1) coincidencias en la cola actual, 2) coincidencias en "Me gusta",
+// 3) resto de resultados de todo Spotify.
+function ExpandedPanel({ onPlayUri, onAddToQueue, onPlayQueueIndex }) {
+  const [queueFull, setQueueFull] = useState(null)
   const [search, setSearch] = useState('')
-  const [searchResults, setSearchResults] = useState(null)
+  const [spotifyResults, setSpotifyResults] = useState([])
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState(false)
+  const [likedReady, setLikedReady] = useState(!!likedCache)
   const inputRef = useRef(null)
   const timerRef = useRef(null)
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 120)
-    // Cargar cola actual
-    window.electronAPI?.getQueue?.().then(res => {
+    // Cola actual (misma vía renderer que usa el reproductor grande)
+    fetchQueue().then(res => {
       const items = res?.queue ?? []
-      setQueue(items.slice(0, 8).map(i => ({
+      setQueueFull(items.map((i, idx) => ({
         uri: i.uri, name: i.name,
         artist: i.artists?.map(a => a.name).join(', ') || '',
         albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
+        queueIndex: idx, // posición real en la cola (0 = la próxima)
       })))
-    }).catch(() => setQueue([]))
+    }).catch(() => setQueueFull([]))
     return () => clearTimeout(timerRef.current)
   }, [])
 
-  // Búsqueda con debounce vía IPC
+  // Búsqueda en Spotify con debounce — vía fetch del renderer (igual que el buscador principal).
+  // searchSpotify devuelve `null` si algo falló (sin token, sin red, respuesta no-ok) y un
+  // array (posiblemente vacío) si la búsqueda en sí no encontró nada — hay que distinguirlos,
+  // si no un error de red se ve exactamente igual que "no hay resultados".
   useEffect(() => {
     clearTimeout(timerRef.current)
-    if (!search.trim()) { setSearchResults(null); return }
+    if (!search.trim()) { setSpotifyResults([]); setSearchError(false); return }
     timerRef.current = setTimeout(async () => {
       setSearching(true)
+      setSearchError(false)
+      const q = search.trim()
+      let items = null
       try {
-        const res = await window.electronAPI?.searchTracks?.(search.trim())
-        const items = res?.tracks?.items ?? []
-        setSearchResults(items.slice(0, 6).map(i => ({
+        items = await searchSpotify(q, 12)
+        if (items === null) {
+          // Reintento único — a veces coincide con un refresh de token en curso
+          await new Promise(r => setTimeout(r, 400))
+          items = await searchSpotify(q, 12)
+        }
+      } catch (err) {
+        console.warn('[TupperBeats] Búsqueda en Spotify (notificación) falló:', err)
+        items = null
+      }
+      if (items === null) {
+        setSearchError(true)
+        setSpotifyResults([])
+      } else {
+        setSpotifyResults(items.map(i => ({
           uri: i.uri, name: i.name,
           artist: i.artists?.map(a => a.name).join(', ') || '',
           albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
         })))
-      } catch { setSearchResults([]) }
+      }
       setSearching(false)
+      // "Me gusta" se precarga recién DESPUÉS de que la búsqueda a Spotify ya resolvió
+      // (una sola vez por sesión, queda en cache) — para que no compitan por la misma
+      // llamada de token al mismo tiempo.
+      ensureLikedCache().then(() => setLikedReady(true))
     }, 380)
+    return () => clearTimeout(timerRef.current)
   }, [search])
 
-  const showQueue = !search.trim()
-  const items = showQueue ? (queue || []) : (searchResults || [])
+  const q = search.trim().toLowerCase()
+  const isSearching = !!q
+
+  // 1º cola, 2º me gusta, 3º todo Spotify (excluyendo lo ya mostrado arriba)
+  const queueMatches = isSearching && queueFull
+    ? queueFull.filter(t => matchesQuery(t, q)).slice(0, 3)
+    : []
+  const likedMatches = isSearching && likedReady
+    ? likedCache.filter(t => matchesQuery(t, q)).slice(0, 3)
+    : []
+  const shownUris = new Set([...queueMatches, ...likedMatches].map(t => t.uri))
+  const spotifyOnly = isSearching ? spotifyResults.filter(t => !shownUris.has(t.uri)) : []
+
+  const queuePreview = (queueFull || []).slice(0, 8)
+  const noResults = isSearching && !searching && !searchError && queueMatches.length === 0 && likedMatches.length === 0 && spotifyOnly.length === 0
 
   return (
     <div style={{
@@ -376,7 +507,7 @@ function ExpandedPanel({ onPlayUri, onAddToQueue }) {
       padding: '8px 8px 4px',
     }}>
       {/* Buscador rápido */}
-      <div style={{ position: 'relative', marginBottom: 6, flexShrink: 0 }}>
+      <div style={{ position: 'relative', marginBottom: 4, flexShrink: 0 }}>
         <span style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'rgba(201,168,76,0.45)', pointerEvents: 'none' }}>🔍</span>
         <input
           ref={inputRef}
@@ -402,48 +533,54 @@ function ExpandedPanel({ onPlayUri, onAddToQueue }) {
         )}
       </div>
 
-      <p style={{ fontSize: 8, color: 'rgba(201,168,76,0.38)', letterSpacing: 1, marginBottom: 3, flexShrink: 0 }}>
-        {showQueue ? 'SIGUIENTE EN COLA' : 'RESULTADOS'}
-      </p>
-
       {/* Lista */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {showQueue && queue === null && (
-          <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Cargando cola...</p>
+        {!isSearching && (
+          <>
+            <SectionLabel>SIGUIENTE EN COLA</SectionLabel>
+            {queueFull === null && (
+              <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Cargando cola...</p>
+            )}
+            {queueFull !== null && queuePreview.length === 0 && (
+              <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Cola vacía</p>
+            )}
+            {queuePreview.map((t, i) => (
+              <NotifResultRow key={t.uri + i} track={t} onPlay={onPlayUri} onAddToQueue={onAddToQueue} onPlayQueueIndex={onPlayQueueIndex} />
+            ))}
+          </>
         )}
-        {showQueue && queue !== null && queue.length === 0 && (
-          <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Cola vacía</p>
+
+        {isSearching && (
+          <>
+            {queueMatches.length > 0 && (
+              <>
+                <SectionLabel>EN COLA</SectionLabel>
+                {queueMatches.map((t, i) => <NotifResultRow key={'q'+t.uri+i} track={t} badge="▶" onPlay={onPlayUri} onAddToQueue={onAddToQueue} onPlayQueueIndex={onPlayQueueIndex} />)}
+              </>
+            )}
+            {likedMatches.length > 0 && (
+              <>
+                <SectionLabel>TUS ME GUSTA</SectionLabel>
+                {likedMatches.map((t, i) => <NotifResultRow key={'l'+t.uri+i} track={t} badge="♥" onPlay={onPlayUri} onAddToQueue={onAddToQueue} />)}
+              </>
+            )}
+            {(searching || spotifyOnly.length > 0 || searchError) && (
+              <>
+                <SectionLabel>EN SPOTIFY</SectionLabel>
+                {searching && spotifyOnly.length === 0 && (
+                  <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '6px 0' }}>Buscando...</p>
+                )}
+                {!searching && searchError && (
+                  <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(248,113,113,0.8)', padding: '6px 0' }}>⚠ No se pudo conectar con Spotify</p>
+                )}
+                {spotifyOnly.map((t, i) => <NotifResultRow key={'s'+t.uri+i} track={t} onPlay={onPlayUri} onAddToQueue={onAddToQueue} />)}
+              </>
+            )}
+            {noResults && (
+              <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Sin resultados</p>
+            )}
+          </>
         )}
-        {!showQueue && !searching && searchResults?.length === 0 && (
-          <p style={{ textAlign: 'center', fontSize: 10, color: 'rgba(245,230,200,0.25)', padding: '10px 0' }}>Sin resultados</p>
-        )}
-        {items.map((t, i) => (
-          <div key={t.uri + i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', borderRadius: 7 }}>
-            {t.albumArt
-              ? <img src={t.albumArt} alt="" style={{ width: 26, height: 26, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
-              : <div style={{ width: 26, height: 26, borderRadius: 4, background: 'rgba(201,168,76,0.08)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>🎵</div>
-            }
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <p style={{ fontSize: 10, color: '#F5E6C8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</p>
-              <p style={{ fontSize: 9, color: 'rgba(245,230,200,0.38)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.artist}</p>
-            </div>
-            {/* Acciones: reproducir + agregar a cola */}
-            <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-              <motion.button onClick={() => onAddToQueue(t.uri)} title="Añadir a cola"
-                style={{ background: 'none', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 5, cursor: 'pointer',
-                  color: 'rgba(201,168,76,0.5)', fontSize: 9, padding: '2px 5px', lineHeight: 1 }}
-                whileHover={{ color: '#F0C040', borderColor: 'rgba(201,168,76,0.6)', background: 'rgba(201,168,76,0.08)' }}
-                whileTap={{ scale: 0.85 }}
-              >+cola</motion.button>
-              <motion.button onClick={() => onPlayUri(t.uri)} title="Reproducir ahora"
-                style={{ background: 'none', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 5, cursor: 'pointer',
-                  color: 'rgba(201,168,76,0.5)', fontSize: 9, padding: '2px 5px', lineHeight: 1 }}
-                whileHover={{ color: '#F0C040', borderColor: 'rgba(201,168,76,0.6)', background: 'rgba(201,168,76,0.08)' }}
-                whileTap={{ scale: 0.85 }}
-              >▶</motion.button>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   )
@@ -451,20 +588,27 @@ function ExpandedPanel({ onPlayUri, onAddToQueue }) {
 
 // ─── Componente principal ────────────────────────────────────────────────────
 export default function HogwartsNotification({ track, isVisible, onClose, onExitComplete }) {
+  const { playUri, playQueueIndex } = useSpotifyControls()
   const [isHovered, setIsHovered] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
   const toggleExpand = useCallback(() => {
-    const next = !isExpanded
-    setIsExpanded(next)
-    window.electronAPI?.resizeNotification?.(next)
-    if (!next) {
-      // Al colapsar, reanudar el timer si estaba corriendo
+    if (isExpanded) {
+      // Al colapsar: primero se anima la salida del panel (ver AnimatePresence
+      // más abajo); la ventana sólo se encoge cuando esa animación termina
+      // (handlePanelExitComplete), para que no se corte de golpe.
+      setIsExpanded(false)
       window.electronAPI?.resumeNotificationTimer?.()
     } else {
-      // Al expandir, detener el timer para que no se oculte
+      setIsExpanded(true)
+      window.electronAPI?.resizeNotification?.(true)
       window.electronAPI?.resetNotificationTimer?.()
     }
   }, [isExpanded])
+
+  // Se dispara cuando termina la animación de salida del panel expandido
+  const handlePanelExitComplete = useCallback(() => {
+    window.electronAPI?.resizeNotification?.(false)
+  }, [])
 
   const handleMouseEnter = useCallback(() => {
     setIsHovered(true)
@@ -476,13 +620,22 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
     if (!isExpanded) window.electronAPI?.resumeNotificationTimer()
   }, [isExpanded])
 
+  // Reproducir/encolar vía fetch directo del renderer (igual que el reproductor grande y
+  // el buscador principal) — la vía anterior (IPC al proceso main) fallaba silenciosamente
+  // para reproducir un track específico, aunque funcionaba para encolar.
   const handlePlayUri = useCallback(async (uri) => {
-    try { await window.electronAPI?.playTrack?.(uri) } catch {}
-  }, [])
+    try { await playUri(uri) } catch {}
+  }, [playUri])
 
   const handleAddToQueue = useCallback(async (uri) => {
-    try { await window.electronAPI?.addToQueue?.(uri) } catch {}
+    try { await apiAddToQueue(uri) } catch {}
   }, [])
+
+  // Tocar una canción DESDE LA COLA adelanta la cola actual hasta ese punto,
+  // en vez de reemplazarla por esa canción sola.
+  const handlePlayQueueIndex = useCallback(async (index) => {
+    try { await playQueueIndex(index) } catch {}
+  }, [playQueueIndex])
 
 
   const cardVariants = {
@@ -516,13 +669,23 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
               initial="initial" animate="animate" exit="exit"
               style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}
             >
-              {/* Panel expandido — encima, en flujo normal */}
-              <AnimatePresence>
+              {/* Panel expandido — encima, en flujo normal. Anima su alto/opacidad
+                  en vez de aparecer/desaparecer de golpe. */}
+              <AnimatePresence onExitComplete={handlePanelExitComplete}>
                 {isExpanded && (
-                  <ExpandedPanel
-                    onPlayUri={handlePlayUri}
-                    onAddToQueue={handleAddToQueue}
-                  />
+                  <motion.div
+                    key="expanded-panel"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 210, opacity: 1, transition: { height: { type: 'spring', stiffness: 260, damping: 28 }, opacity: { duration: 0.25, delay: 0.05 } } }}
+                    exit={{ height: 0, opacity: 0, transition: { height: { duration: 0.22, ease: [0.4, 0, 0.6, 1] }, opacity: { duration: 0.12 } } }}
+                    style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}
+                  >
+                    <ExpandedPanel
+                      onPlayUri={handlePlayUri}
+                      onAddToQueue={handleAddToQueue}
+                      onPlayQueueIndex={handlePlayQueueIndex}
+                    />
+                  </motion.div>
                 )}
               </AnimatePresence>
 
@@ -575,6 +738,32 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
                 <Corner pos={{ top: 4, right: 4 }}   rotate="90deg"   isHovered={isHovered} />
                 <Corner pos={{ bottom: 4, left: 4 }} rotate="-90deg"  isHovered={isHovered} />
                 <Corner pos={{ bottom: 4, right: 4 }} rotate="180deg" isHovered={isHovered} />
+
+                {/* Botón expandir/colapsar — esquina superior de la tarjeta.
+                    Siempre montado (el espacio ya está reservado) para que nada
+                    se mueva al aparecer/desaparecer; sólo cambia su opacidad. */}
+                <motion.button
+                  onClick={toggleExpand} className="no-drag"
+                  title={isExpanded ? 'Colapsar' : 'Ver cola y buscar'}
+                  animate={{ opacity: isHovered ? 1 : 0 }}
+                  transition={{ duration: 0.18 }}
+                  style={{
+                    position: 'absolute', top: 6, left: 6, zIndex: 30,
+                    width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.35)',
+                    borderRadius: 7, cursor: 'pointer', padding: 0,
+                    color: isExpanded ? '#F0C040' : 'rgba(245,230,200,0.6)',
+                    pointerEvents: isHovered ? 'auto' : 'none',
+                  }}
+                  whileHover={{ color: '#F0C040', borderColor: 'rgba(201,168,76,0.7)', background: 'rgba(201,168,76,0.2)', scale: 1.08 }}
+                  whileTap={{ scale: 0.85 }}
+                >
+                  <motion.span
+                    animate={{ rotate: isExpanded ? 180 : 0 }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+                    style={{ fontSize: 11, lineHeight: 1, display: 'inline-block' }}
+                  >▲</motion.span>
+                </motion.button>
 
                 {/* Línea superior dorada */}
                 <div style={{
@@ -676,28 +865,6 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <VolumeSlider />
-                        {/* Botón expandir/colapsar — visible al hacer hover */}
-                        {/* <AnimatePresence>
-                          {isHovered && (
-                            <motion.button
-                              initial={{ opacity: 0, scale: 0.7 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.7 }}
-                              onClick={toggleExpand}
-                              title={isExpanded ? 'Colapsar' : 'Ver cola y buscar'}
-                              style={{
-                                background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)',
-                                borderRadius: 6, cursor: 'pointer', padding: '3px 7px',
-                                color: isExpanded ? '#F0C040' : 'rgba(245,230,200,0.5)',
-                                fontSize: 11, lineHeight: 1, transition: 'all 0.15s',
-                              }}
-                              whileHover={{ color: '#F0C040', borderColor: 'rgba(201,168,76,0.7)', background: 'rgba(201,168,76,0.15)' }}
-                              whileTap={{ scale: 0.85 }}
-                            >
-                              {isExpanded ? '▼' : '▲'}
-                            </motion.button>
-                          )}
-                        </AnimatePresence> */}
                       </div>
                     </motion.div>
                   </div>

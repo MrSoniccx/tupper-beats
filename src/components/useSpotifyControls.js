@@ -88,5 +88,19 @@ export function useSpotifyControls() {
     return res
   }, [])
 
-  return { play, pause, togglePlay, next, previous, seek, setVolume, playUri, playTrackInContext }
+  // Avanza la COLA ACTUAL hasta la canción en la posición `index` (0 = la próxima
+  // en cola), en vez de reemplazar la reproducción por esa canción sola.
+  // La API de Spotify no tiene un endpoint para "saltar" directo a un punto de la
+  // cola, así que se simula llamando "siguiente" repetidamente (index+1 veces) —
+  // es el mismo truco que usa el propio Spotify cuando tocás una canción de tu cola.
+  const playQueueIndex = useCallback(async (index) => {
+    if (index === undefined || index === null || index < 0) return
+    for (let i = 0; i <= index; i++) {
+      const res = await spotifyFetch('/me/player/next', 'POST')
+      if (res?.error || (res?.status && res.status >= 400)) break
+    }
+    setIsPlaying(true)
+  }, [])
+
+  return { play, pause, togglePlay, next, previous, seek, setVolume, playUri, playTrackInContext, playQueueIndex }
 }
