@@ -55,6 +55,32 @@ html, body, #root {
 .drag-region { -webkit-app-region: drag; }
 .no-drag { -webkit-app-region: no-drag; }
 
+/* Foco de teclado visible y consistente en todos los temas — usa el acento
+   del tema activo en vez de un azul genérico del navegador. */
+:focus-visible {
+  outline: 2px solid var(--tb-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Transición suave del color de fondo al cambiar de tema, para que no se
+   sienta un "salto" brusco entre paletas. */
+body, #root {
+  transition: background-color 0.4s ease;
+}
+
+/* Respeta "reducir movimiento" del sistema operativo — todas las animaciones
+   decorativas (burbujas, velas, caústicas, ajolote nadando, etc.) se calman
+   a una sola pasada casi instantánea en vez de correr infinitamente. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Textura de superficie clara (pergamino en Hogwarts, tarjeta pastel en Axolote) */
 .parchment-bg {
   background-color: var(--tb-surface);

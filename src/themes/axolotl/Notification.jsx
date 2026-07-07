@@ -55,6 +55,33 @@ const GLOBAL_CSS = `
   94%         { opacity: 0; }
   96%         { opacity: 0.5; }
 }
+@keyframes ax-caustic-drift-mini {
+  0%   { transform: translate(-4%, -3%) rotate(0deg); opacity: 0.25; }
+  50%  { transform: translate(3%, 2%)   rotate(2deg);  opacity: 0.45; }
+  100% { transform: translate(-4%, -3%) rotate(0deg); opacity: 0.25; }
+}
+@keyframes ax-seaweed-sway-mini {
+  0%,100% { transform: rotate(-5deg); }
+  50%     { transform: rotate(6deg); }
+}
+@keyframes ax-fish-swim-card {
+  0%   { transform: translateX(-24px) translateY(0px); opacity: 0; }
+  10%  { opacity: 0.55; }
+  90%  { opacity: 0.55; }
+  100% { transform: translateX(calc(100% + 24px)) translateY(-10px); opacity: 0; }
+}
+@keyframes ax-sonar-ring {
+  0%   { transform: scale(0.9); opacity: 0.5; }
+  70%  { opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes ax-glass-sweep-loop {
+  0%   { transform: translateX(-140%) skewX(-14deg); opacity: 0; }
+  8%   { opacity: 0.5; }
+  35%  { opacity: 0.5; }
+  50%  { transform: translateX(340%) skewX(-14deg); opacity: 0; }
+  100% { transform: translateX(340%) skewX(-14deg); opacity: 0; }
+}
 `
 
 const BUBBLES = [
@@ -74,6 +101,75 @@ const BUBBLES = [
 
 function MiniMascot({ opacity = 0.28, width = 88 }) {
   return <Mascot width={width} opacity={opacity} />
+}
+
+// Luz caústica en miniatura — el mismo efecto de agua del Background, a escala
+// de tarjeta, para que la notificación se sienta parte del mismo acuario.
+const CAUSTIC_MINI = [
+  { left: '8%',  width: 46, delay: 0,   dur: 7  },
+  { left: '52%', width: 60, delay: 1.1, dur: 8.5 },
+]
+function CausticMini({ left, width, delay, dur }) {
+  return (
+    <div style={{
+      position: 'absolute', top: '-20%', left, width, height: '150%',
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,111,165,0.04) 55%, transparent 85%)',
+      filter: 'blur(5px)', mixBlendMode: 'screen', pointerEvents: 'none', zIndex: 0,
+      animation: `ax-caustic-drift-mini ${dur}s ${delay}s ease-in-out infinite`,
+    }} />
+  )
+}
+
+// Pececitos cruzando la tarjeta — sutiles, a dos velocidades/profundidades,
+// para que la notificación se sienta la misma pecera que el Background.
+const FISH_CARD = [
+  { top: '28%', dur: 9,  delay: 0.5, scale: 0.7 },
+  { top: '68%', dur: 12, delay: 4,   scale: 0.55, flip: true },
+]
+function FishMini({ top, dur, delay, scale = 1, flip = false }) {
+  return (
+    <div style={{
+      position: 'absolute', top, left: 0, zIndex: 1, pointerEvents: 'none',
+      animation: `ax-fish-swim-card ${dur}s ${delay}s linear infinite`,
+      transform: `scale(${scale}) ${flip ? 'scaleY(-1)' : ''}`,
+    }}>
+      <svg width="22" height="12" viewBox="0 0 26 14" style={{ filter: 'drop-shadow(0 0 3px rgba(255,111,165,0.4))' }}>
+        <ellipse cx="14" cy="7" rx="10" ry="5.5" fill="rgba(255,143,193,0.6)" />
+        <path d="M4 7 L0 2 L0 12 Z" fill="rgba(255,143,193,0.55)" />
+        <circle cx="19" cy="5.5" r="1.1" fill="#3A2233" opacity="0.6" />
+      </svg>
+    </div>
+  )
+}
+
+// Anillo de "sonar" — pulsa desde el medallón cada tanto, como una onda en
+// el agua. Independiente del anillo fijo que ya tiene AlbumMedallion.
+function SonarRing() {
+  return (
+    <div style={{
+      position: 'absolute', inset: -5, borderRadius: '50%',
+      border: '1.5px solid rgba(var(--tb-accent-rgb),0.55)',
+      pointerEvents: 'none',
+      animation: 'ax-sonar-ring 3.2s ease-out infinite',
+    }} />
+  )
+}
+
+// Algas diminutas en las esquinas inferiores de la tarjeta
+function SeaweedMini({ side }) {
+  const base = side === 'left' ? { left: 6 } : { right: 6 }
+  return (
+    <div style={{ position: 'absolute', bottom: -2, ...base, zIndex: 0, pointerEvents: 'none', display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
+      {[0, 1].map(i => (
+        <div key={i} style={{
+          width: 4, height: 10 + i * 6, borderRadius: '50% 50% 20% 20% / 60% 60% 10% 10%',
+          background: 'linear-gradient(180deg, rgba(176,132,245,0.3), rgba(43,16,48,0.05))',
+          transformOrigin: 'bottom center',
+          animation: `ax-seaweed-sway-mini ${2.6 + i * 0.4}s ${i * 0.25}s ease-in-out infinite alternate`,
+        }} />
+      ))}
+    </div>
+  )
 }
 
 function Bubble({ b }) {
@@ -123,6 +219,7 @@ function Corner({ pos, rotate = '0deg', isHovered }) {
 function AlbumMedallion({ src }) {
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
+      <SonarRing />
       <div style={{
         position: 'absolute', inset: -5, borderRadius: '50%',
         border: '1px solid rgba(var(--tb-primary-rgb),0.4)',
@@ -542,6 +639,18 @@ export default function AxolotlNotification({ track, isVisible, onClose, onExitC
                 transition: 'border-color 0.3s ease',
                 ...glowStyle,
               }}>
+                {CAUSTIC_MINI.map((c, i) => <CausticMini key={i} {...c} />)}
+                <SeaweedMini side="left" />
+                <SeaweedMini side="right" />
+                {FISH_CARD.map((f, i) => <FishMini key={i} {...f} />)}
+
+                {/* Brillo de vidrio recorriendo la tarjeta cada tanto — sutil, en loop */}
+                <div style={{
+                  position: 'absolute', top: 0, bottom: 0, width: '30%', zIndex: 1, pointerEvents: 'none',
+                  background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent)',
+                  animation: 'ax-glass-sweep-loop 7s ease-in-out infinite',
+                }} />
+
                 {BUBBLES.map(b => <Bubble key={b.id} b={b} />)}
 
                 {SPARKLES.map(s => (
@@ -641,10 +750,10 @@ export default function AxolotlNotification({ track, isVisible, onClose, onExitC
                   />
                 )}
 
-                {/* ── Ajolotito decorativo ── */}
-                <div style={{
-                  position: 'absolute', top: 10, right: 20, zIndex: 5,
-                  pointerEvents: 'none', opacity: 0.85,
+                {/* ── Ajolotito decorativo — clickeable, se puede acariciar ── */}
+                <div className="no-drag" style={{
+                  position: 'absolute', top: 10, right: 20, zIndex: 25,
+                  pointerEvents: 'auto', opacity: 0.85,
                 }}>
                   <MiniMascot width={80} opacity={0.9} />
                 </div>

@@ -7,7 +7,9 @@ import { getTheme } from '../themes'
 export default function SplashScreen() {
   const navigate = useNavigate()
   const { isAuthenticated, activeTheme, loadSettings } = useAppStore()
-  const theme = getTheme(activeTheme).data
+  const themeEntry = getTheme(activeTheme)
+  const theme = themeEntry.data
+  const Mascot = themeEntry.Mascot
 
   useEffect(() => {
     const init = async () => {
@@ -53,11 +55,12 @@ export default function SplashScreen() {
         transition={{ duration: 0.8, ease: [0.34, 1.56, 0.64, 1] }}
       >
         <motion.div
-          className="text-7xl mb-4"
-          animate={{ rotate: [0, 10, -10, 0] }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+          className="mb-4 flex justify-center"
+          initial={{ scale: 0.7, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }}
         >
-          {theme.emoji}
+          <Mascot width={130} opacity={0.9} />
         </motion.div>
 
         <motion.h1
