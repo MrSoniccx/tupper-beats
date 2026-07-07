@@ -2,10 +2,12 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import useAppStore from '../store/useAppStore'
+import { getTheme } from '../themes'
 
 export default function SplashScreen() {
   const navigate = useNavigate()
-  const { isAuthenticated, loadSettings } = useAppStore()
+  const { isAuthenticated, activeTheme, loadSettings } = useAppStore()
+  const theme = getTheme(activeTheme).data
 
   useEffect(() => {
     const init = async () => {
@@ -19,12 +21,12 @@ export default function SplashScreen() {
   }, [])
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center bg-hw-negro relative overflow-hidden">
+    <div className="w-full h-full flex flex-col items-center justify-center bg-tb-bg relative overflow-hidden">
       {/* Partículas de fondo */}
       {[...Array(12)].map((_, i) => (
         <motion.div
           key={i}
-          className="absolute w-1 h-1 rounded-full bg-hw-oro"
+          className="absolute w-1 h-1 rounded-full bg-tb-accent"
           style={{
             left: `${Math.random() * 100}%`,
             top:  `${Math.random() * 100}%`,
@@ -55,12 +57,12 @@ export default function SplashScreen() {
           animate={{ rotate: [0, 10, -10, 0] }}
           transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
         >
-          🏰
+          {theme.emoji}
         </motion.div>
 
         <motion.h1
-          className="font-magic text-5xl text-hw-oro mb-2"
-          style={{ textShadow: '0 0 20px rgba(201,168,76,0.8), 0 0 40px rgba(201,168,76,0.4)' }}
+          className="font-tb-heading text-5xl text-tb-accent mb-2"
+          style={{ textShadow: '0 0 20px rgba(var(--tb-primary-rgb),0.8), 0 0 40px rgba(var(--tb-primary-rgb),0.4)' }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4, duration: 0.6 }}
@@ -69,7 +71,7 @@ export default function SplashScreen() {
         </motion.h1>
 
         <motion.p
-          className="text-hw-crema/60 text-sm tracking-widest uppercase"
+          className="text-tb-textlight/60 text-sm tracking-widest uppercase"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.8, duration: 0.6 }}
@@ -80,13 +82,13 @@ export default function SplashScreen() {
 
       {/* Barra de carga */}
       <motion.div
-        className="absolute bottom-12 w-48 h-0.5 bg-hw-crema/20 rounded-full overflow-hidden"
+        className="absolute bottom-12 w-48 h-0.5 bg-tb-textlight/20 rounded-full overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 1 }}
       >
         <motion.div
-          className="h-full bg-hw-oro rounded-full"
+          className="h-full bg-tb-accent rounded-full"
           initial={{ width: '0%' }}
           animate={{ width: '100%' }}
           transition={{ delay: 1, duration: 1.1, ease: 'easeInOut' }}

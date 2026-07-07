@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   getActiveTheme: ()        => ipcRenderer.invoke('get-active-theme'),
   setActiveTheme: (theme)   => ipcRenderer.invoke('set-active-theme', theme),
+  // Sincronizar el tema al instante entre ventana principal y notificación
+  onThemeChanged: (cb)      => ipcRenderer.on('theme-changed', (_, theme) => cb(theme)),
 
   updateNotificationSettings: (s) => ipcRenderer.send('update-notification-settings', s),
 
@@ -52,10 +54,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPlaybackModeChanged: (cb) => ipcRenderer.on('playback-mode-changed', (_, data) => cb(data)),
   broadcastPlaybackMode: (data) => ipcRenderer.send('playback-mode-changed', data),
 
+  // Sincronizar el modo manual de "Mis canciones" (cola local, sin tocar la
+  // cola real de Spotify) entre ventana principal y notificación — mismo
+  // patrón que playback-mode-changed. `data` es { uris, idx } o null.
+  onLikedQueueChanged:  (cb)   => ipcRenderer.on('liked-queue-changed', (_, data) => cb(data)),
+  broadcastLikedQueue:  (data) => ipcRenderer.send('liked-queue-changed', data),
+
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
 
   // Token válido (con auto-refresh via main process)
   getValidToken: ()    => ipcRenderer.invoke('get-valid-token'),
+
+  // Manda un fallo de búsqueda/spotifyGet a la terminal de `npm run dev`
+  // (el console.warn del renderer sólo se ve en el DevTools de esa ventana)
+  logSpotifyError: (info) => ipcRenderer.send('log-spotify-error', info),
 
   // Pantallas disponibles para selector de notificación
   getDisplays:   ()    => ipcRenderer.invoke('get-displays'),

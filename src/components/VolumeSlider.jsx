@@ -92,7 +92,7 @@ export default function VolumeSlider({ className = '' }) {
         <div style={{
           position: 'absolute', top: 0, left: 0, bottom: 0,
           width: `${displayVol}%`,
-          background: 'linear-gradient(90deg, #C9A84C, #F0C040)',
+          background: 'linear-gradient(90deg, var(--tb-primary), var(--tb-accent))',
           borderRadius: 4,
           transition: dragging ? 'none' : 'width 0.1s ease',
         }} />
@@ -101,7 +101,7 @@ export default function VolumeSlider({ className = '' }) {
           transform: 'translate(-50%, -50%)', width: 10, height: 10, pointerEvents: 'none',
         }}>
           <div style={{
-            width: '100%', height: '100%', borderRadius: '50%', background: '#F0C040',
+            width: '100%', height: '100%', borderRadius: '50%', background: 'var(--tb-accent)',
             boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
             transition: 'transform 0.12s ease, opacity 0.12s ease',
             transform: (hover || dragging) ? 'scale(1.4)' : 'scale(1)',

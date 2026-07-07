@@ -7,24 +7,36 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Paleta base girly
+        // Paleta base girly (legado, ya no se usa directamente)
         'rosa':     '#FFB6C1',
         'lavanda':  '#E6D7FF',
         'dorado':   '#FFD700',
         'perla':    '#FAFAFA',
         'ciruela':  '#9B5DE5',
         'marron':   '#A0522D',
-        // Paleta Hogwarts
+        // Paleta Hogwarts (legado, usar tb-* para que funcione en todos los temas)
         'hw-dorado':  '#C9A84C',
         'hw-granate': '#740001',
         'hw-crema':   '#F5E6C8',
         'hw-negro':   '#1A1A2E',
         'hw-oro':     '#F0C040',
+        // Paleta dinamica por tema, lee las variables CSS que aplica
+        // src/themes/index.js (applyThemeVars). Soporta modificadores de
+        // opacidad de Tailwind (ej. text-tb-textlight/50) automaticamente.
+        'tb-primary':   'rgb(var(--tb-primary-rgb) / <alpha-value>)',
+        'tb-secondary': 'rgb(var(--tb-secondary-rgb) / <alpha-value>)',
+        'tb-bg':        'rgb(var(--tb-bg-rgb) / <alpha-value>)',
+        'tb-surface':   'rgb(var(--tb-surface-rgb) / <alpha-value>)',
+        'tb-text':      'rgb(var(--tb-text-rgb) / <alpha-value>)',
+        'tb-textlight': 'rgb(var(--tb-textLight-rgb) / <alpha-value>)',
+        'tb-accent':    'rgb(var(--tb-accent-rgb) / <alpha-value>)',
       },
       fontFamily: {
-        magic:    ['"UnifrakturMaguntia"', 'cursive'],
-        medieval: ['"MedievalSharp"', 'serif'],
-        sans:     ['"Inter"', 'sans-serif'],
+        magic:      ['"UnifrakturMaguntia"', 'cursive'],
+        medieval:   ['"MedievalSharp"', 'serif'],
+        sans:       ['"Inter"', 'sans-serif'],
+        'tb-heading': 'var(--tb-font-heading)',
+        'tb-body':    'var(--tb-font-body)',
       },
       animation: {
         'float':        'float 3s ease-in-out infinite',
@@ -68,8 +80,8 @@ export default {
         'great-hall': "url('/assets/hogwarts/great-hall.jpg')",
       },
       boxShadow: {
-        'gold':   '0 0 15px rgba(201,168,76,0.5), inset 0 1px 0 rgba(255,255,255,0.1)',
-        'magic':  '0 0 30px rgba(201,168,76,0.8), 0 0 60px rgba(201,168,76,0.4)',
+        'gold':   '0 0 15px rgba(var(--tb-primary-rgb),0.5), inset 0 1px 0 rgba(255,255,255,0.1)',
+        'magic':  '0 0 30px rgba(var(--tb-primary-rgb),0.8), 0 0 60px rgba(var(--tb-primary-rgb),0.4)',
         'girly':  '0 8px 32px rgba(155,93,229,0.2)',
       },
     },

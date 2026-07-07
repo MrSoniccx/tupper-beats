@@ -22,7 +22,11 @@ async function spotifyFetch(path, method = 'GET', body = null) {
 }
 
 export function useSpotifyControls() {
-  const { isPlaying, setIsPlaying } = useAppStore()
+  const {
+    isPlaying, setIsPlaying,
+    shuffle, repeatMode,
+    likedQueue, setLikedQueue, clearLikedQueue,
+  } = useAppStore()
 
   const play = useCallback(async () => {
     await spotifyFetch('/me/player/play', 'PUT', {})
@@ -39,13 +43,72 @@ export function useSpotifyControls() {
     else await play()
   }, [isPlaying])
 
-  const next = useCallback(async () => {
-    await spotifyFetch('/me/player/next', 'POST')
+  // Sale del modo manual de "Mis canciones" y avisa a la otra ventana
+  // (principal ↔ notificación) para que quede sincronizado.
+  const exitLikedQueue = useCallback(() => {
+    clearLikedQueue()
+    window.electronAPI?.broadcastLikedQueue?.(null)
   }, [])
 
-  const previous = useCallback(async () => {
-    await spotifyFetch('/me/player/previous', 'POST')
+  // Reproduce una posición puntual DENTRO del modo manual — un solo track por
+  // vez, sin tocar /me/player/queue (eso fue lo que rompía todo: encolar de a
+  // cientos terminaba corrompiendo la cola real del dispositivo y dejaba la
+  // app sin poder reproducir/avanzar nada más).
+  const playLikedAt = useCallback(async (queueState, idx) => {
+    const uri = queueState.uris[idx]
+    if (!uri) return
+    const res = await spotifyFetch('/me/player/play', 'PUT', { uris: [uri] })
+    if (res.status === 204) setIsPlaying(true)
+    const updated = { uris: queueState.uris, idx }
+    setLikedQueue(updated)
+    window.electronAPI?.broadcastLikedQueue?.(updated)
+    return res
   }, [])
+
+  // Arranca el modo manual — llamado desde Settings.jsx al tocar una canción
+  // en "Mis canciones". `uris` es la lista completa (en su orden actual) y
+  // `startIndex` la posición de la canción tocada.
+  const startLikedQueue = useCallback(async (uris, startIndex) => {
+    return playLikedAt({ uris, idx: startIndex }, startIndex)
+  }, [playLikedAt])
+
+  const next = useCallback(async () => {
+    if (likedQueue) {
+      const { uris, idx } = likedQueue
+      let nextIdx
+      if (shuffle && uris.length > 1) {
+        do { nextIdx = Math.floor(Math.random() * uris.length) } while (nextIdx === idx)
+      } else {
+        nextIdx = idx + 1
+        if (nextIdx >= uris.length) {
+          if (repeatMode === 'off') return // fin de la lista — no hay más nada que hacer
+          nextIdx = 0 // repetir contexto/canción → reinicia desde el principio
+        }
+      }
+      await playLikedAt(likedQueue, nextIdx)
+      return
+    }
+    await spotifyFetch('/me/player/next', 'POST')
+  }, [likedQueue, shuffle, repeatMode, playLikedAt])
+
+  const previous = useCallback(async () => {
+    if (likedQueue) {
+      const { uris, idx } = likedQueue
+      let prevIdx
+      if (shuffle && uris.length > 1) {
+        do { prevIdx = Math.floor(Math.random() * uris.length) } while (prevIdx === idx)
+      } else {
+        prevIdx = idx - 1
+        if (prevIdx < 0) {
+          if (repeatMode === 'off') return
+          prevIdx = uris.length - 1
+        }
+      }
+      await playLikedAt(likedQueue, prevIdx)
+      return
+    }
+    await spotifyFetch('/me/player/previous', 'POST')
+  }, [likedQueue, shuffle, repeatMode, playLikedAt])
 
   const seek = useCallback(async (positionMs) => {
     await spotifyFetch(`/me/player/seek?position_ms=${Math.floor(positionMs)}`, 'PUT')
@@ -59,7 +122,10 @@ export function useSpotifyControls() {
   //   spotify:track:xxx   → uris array  (inicia sólo esa canción)
   //   spotify:album:xxx   → context_uri (inicia el álbum desde el principio)
   //   spotify:playlist:xxx→ context_uri
+  // Se usa para TODO lo que no sea "Mis canciones" (playlists, álbumes,
+  // búsqueda, búsqueda global) — por eso sale del modo manual acá.
   const playUri = useCallback(async (uri, offsetUri = null) => {
+    exitLikedQueue()
     let body
     if (uri.startsWith('spotify:track:')) {
       body = { uris: [uri] }
@@ -73,11 +139,12 @@ export function useSpotifyControls() {
     const res = await spotifyFetch('/me/player/play', 'PUT', body)
     if (res.status === 204) setIsPlaying(true)
     return res
-  }, [])
+  }, [exitLikedQueue])
 
   // Reproduce una canción dentro de un contexto (playlist/álbum)
   // context: URI del contexto, trackUri: URI del track específico
   const playTrackInContext = useCallback(async (contextUri, trackUri) => {
+    exitLikedQueue()
     const body = {
       context_uri: contextUri,
       offset: { uri: trackUri },
@@ -86,7 +153,7 @@ export function useSpotifyControls() {
     const res = await spotifyFetch('/me/player/play', 'PUT', body)
     if (res.status === 204) setIsPlaying(true)
     return res
-  }, [])
+  }, [exitLikedQueue])
 
   // Avanza la COLA ACTUAL hasta la canción en la posición `index` (0 = la próxima
   // en cola), en vez de reemplazar la reproducción por esa canción sola.
@@ -95,12 +162,13 @@ export function useSpotifyControls() {
   // es el mismo truco que usa el propio Spotify cuando tocás una canción de tu cola.
   const playQueueIndex = useCallback(async (index) => {
     if (index === undefined || index === null || index < 0) return
+    exitLikedQueue()
     for (let i = 0; i <= index; i++) {
       const res = await spotifyFetch('/me/player/next', 'POST')
       if (res?.error || (res?.status && res.status >= 400)) break
     }
     setIsPlaying(true)
-  }, [])
+  }, [exitLikedQueue])
 
-  return { play, pause, togglePlay, next, previous, seek, setVolume, playUri, playTrackInContext, playQueueIndex }
+  return { play, pause, togglePlay, next, previous, seek, setVolume, playUri, playTrackInContext, playQueueIndex, startLikedQueue }
 }

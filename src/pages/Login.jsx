@@ -129,7 +129,7 @@ export default function Login() {
   }
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center bg-hw-negro relative overflow-hidden">
+    <div className="w-full h-full flex flex-col items-center justify-center bg-tb-bg relative overflow-hidden">
       {/* Fondo animado con partículas */}
       <div className="absolute inset-0 pointer-events-none">
         {[...Array(16)].map((_, i) => (
@@ -139,7 +139,7 @@ export default function Login() {
             style={{
               width:  `${2 + Math.random() * 3}px`,
               height: `${2 + Math.random() * 3}px`,
-              background: i % 3 === 0 ? '#C9A84C' : i % 3 === 1 ? '#9B5DE5' : '#FFB6C1',
+              background: i % 3 === 0 ? 'var(--tb-primary)' : i % 3 === 1 ? 'var(--tb-secondary)' : 'var(--tb-accent)',
               left:   `${Math.random() * 100}%`,
               bottom: `-${Math.random() * 20}%`,
             }}
@@ -170,15 +170,15 @@ export default function Login() {
           >
             🎵
           </motion.div>
-          <h1 className="font-magic text-4xl text-hw-oro mb-1"
-              style={{ textShadow: '0 0 15px rgba(201,168,76,0.6)' }}>
+          <h1 className="font-tb-heading text-4xl text-tb-accent mb-1"
+              style={{ textShadow: '0 0 15px rgba(var(--tb-primary-rgb),0.6)' }}>
             TupperBeats
           </h1>
-          <p className="text-hw-crema/50 text-sm">Conecta tu Spotify para empezar la magia</p>
+          <p className="text-tb-textlight/50 text-sm">Conecta tu Spotify para empezar la magia</p>
         </div>
 
         {/* Card */}
-        <div className="parchment-bg rounded-2xl p-6 border border-hw-dorado/40 shadow-gold">
+        <div className="parchment-bg rounded-2xl p-6 border border-tb-primary/40 shadow-gold">
           <AnimatePresence mode="wait">
             {status === 'idle' || status === 'error' ? (
               <motion.div
@@ -188,7 +188,7 @@ export default function Login() {
                 exit={{ opacity: 0 }}
               >
                 {/* Client ID input */}
-                <label className="block mb-1 text-xs font-semibold text-hw-granate uppercase tracking-wider">
+                <label className="block mb-1 text-xs font-semibold text-tb-secondary uppercase tracking-wider">
                   Spotify Client ID
                 </label>
                 <input
@@ -196,13 +196,13 @@ export default function Login() {
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
                   placeholder="Pega aquí tu Client ID de Spotify..."
-                  className="w-full bg-white/60 border border-hw-dorado/40 rounded-xl px-4 py-2.5 text-hw-negro text-sm outline-none focus:border-hw-dorado focus:shadow-gold transition-all mb-1 no-drag"
+                  className="w-full bg-white/60 border border-tb-primary/40 rounded-xl px-4 py-2.5 text-tb-bg text-sm outline-none focus:border-tb-primary focus:shadow-gold transition-all mb-1 no-drag"
                   style={{ userSelect: 'text' }}
                 />
-                <p className="text-xs text-hw-negro/50 mb-4">
+                <p className="text-xs text-tb-bg/50 mb-4">
                   Obtenlo gratis en{' '}
                   <span
-                    className="text-hw-granate underline cursor-pointer"
+                    className="text-tb-secondary underline cursor-pointer"
                     onClick={() => window.electronAPI?.openAuthUrl('https://developer.spotify.com/dashboard')}
                   >
                     developer.spotify.com
@@ -242,8 +242,8 @@ export default function Login() {
                 >
                   ⚡
                 </motion.div>
-                <p className="text-hw-negro font-medium mb-1">Esperando autorización...</p>
-                <p className="text-hw-negro/60 text-xs">Inicia sesión en el navegador que se abrió</p>
+                <p className="text-tb-bg font-medium mb-1">Esperando autorización...</p>
+                <p className="text-tb-bg/60 text-xs">Inicia sesión en el navegador que se abrió</p>
               </motion.div>
             ) : (
               <motion.div
@@ -252,7 +252,7 @@ export default function Login() {
                 initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
               >
                 <div className="text-5xl mb-3">✨</div>
-                <p className="text-hw-negro font-semibold">¡Conectado! Bienvenida Tupper 🎂</p>
+                <p className="text-tb-bg font-semibold">¡Conectado! Bienvenida Tupper 🎂</p>
               </motion.div>
             )}
           </AnimatePresence>

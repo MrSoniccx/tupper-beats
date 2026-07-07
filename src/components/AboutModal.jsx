@@ -1,6 +1,10 @@
 import { motion, AnimatePresence } from 'framer-motion'
+import useAppStore from '../store/useAppStore'
+import { getTheme } from '../themes'
 
 export default function AboutModal({ open, onClose }) {
+  const { activeTheme } = useAppStore()
+  const theme = getTheme(activeTheme).data
   return (
     <AnimatePresence>
       {open && (
@@ -15,9 +19,9 @@ export default function AboutModal({ open, onClose }) {
           <motion.div
             className="relative max-w-sm w-full mx-6 rounded-2xl overflow-hidden"
             style={{
-              background: 'linear-gradient(135deg, #2a1a08 0%, #1a1a2e 100%)',
-              border: '1px solid rgba(201,168,76,0.5)',
-              boxShadow: '0 0 40px rgba(201,168,76,0.3), 0 20px 60px rgba(0,0,0,0.6)',
+              background: 'linear-gradient(135deg, #2a1a08 0%, var(--tb-bg) 100%)',
+              border: '1px solid rgba(var(--tb-primary-rgb),0.5)',
+              boxShadow: '0 0 40px rgba(var(--tb-primary-rgb),0.3), 0 20px 60px rgba(0,0,0,0.6)',
             }}
             initial={{ scale: 0.8, y: 20 }}
             animate={{ scale: 1, y: 0 }}
@@ -32,7 +36,7 @@ export default function AboutModal({ open, onClose }) {
                 className="absolute rounded-full pointer-events-none"
                 style={{
                   width: 3, height: 3,
-                  background: '#C9A84C',
+                  background: 'var(--tb-primary)',
                   left: `${10 + i * 11}%`,
                   bottom: 0,
                 }}
@@ -42,61 +46,60 @@ export default function AboutModal({ open, onClose }) {
             ))}
 
             <div className="relative z-10 p-8 text-center">
-              {/* Escudo animado */}
+              {/* Mascota animada */}
               <motion.div
                 className="text-6xl mb-4"
                 animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.05, 1] }}
                 transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
               >
-                🏰
+                {theme.emoji}
               </motion.div>
 
               {/* Título */}
               <h2
                 className="text-3xl mb-2"
                 style={{
-                  fontFamily: '"UnifrakturMaguntia", cursive',
-                  color: '#C9A84C',
-                  textShadow: '0 0 20px rgba(201,168,76,0.8)',
+                  fontFamily: 'var(--tb-font-heading)',
+                  color: 'var(--tb-primary)',
+                  textShadow: '0 0 20px rgba(var(--tb-primary-rgb),0.8)',
                 }}
               >
                 TupperBeats
               </h2>
 
-              <p className="text-hw-crema/40 text-xs mb-6 tracking-widest uppercase">Versión 1.0.0</p>
+              <p className="text-tb-textlight/40 text-xs mb-6 tracking-widest uppercase">Versión 1.0.0</p>
 
-              {/* Separador dorado */}
-              <div className="w-24 h-px bg-gradient-to-r from-transparent via-hw-dorado to-transparent mx-auto mb-6" />
+              {/* Separador */}
+              <div className="w-24 h-px bg-gradient-to-r from-transparent via-tb-primary to-transparent mx-auto mb-6" />
 
               {/* Mensaje de cumpleaños */}
               <div
                 className="rounded-xl p-4 mb-6"
                 style={{
-                  background: 'rgba(245,230,200,0.06)',
-                  border: '1px solid rgba(201,168,76,0.2)',
+                  background: 'rgba(var(--tb-textLight-rgb),0.06)',
+                  border: '1px solid rgba(var(--tb-primary-rgb),0.2)',
                 }}
               >
-                <p className="text-hw-crema/80 text-sm leading-relaxed">
-                  Para mi mejor amiga <strong className="text-hw-oro">Tupper</strong> 💜
+                <p className="text-tb-textlight/80 text-sm leading-relaxed">
+                  Para mi mejor amiga <strong className="text-tb-accent">Tupper</strong> 💜
                 </p>
-                <p className="text-hw-crema/60 text-sm leading-relaxed mt-2">
-                  Que cada canción que escuches suene tan especial como tú.
-                  Que Hogwarts siempre esté en tu corazón y en tus playlists ✨
+                <p className="text-tb-textlight/60 text-sm leading-relaxed mt-2">
+                  Que cada canción que escuches suene tan especial como tú ✨
                 </p>
-                <p className="text-hw-crema/50 text-sm mt-3">
-                  <strong className="text-hw-oro">¡Feliz cumpleaños!</strong> 🎂🏰
+                <p className="text-tb-textlight/50 text-sm mt-3">
+                  <strong className="text-tb-accent">¡Feliz cumpleaños!</strong> 🎂 {theme.emoji}
                 </p>
               </div>
 
-              <p className="text-hw-crema/30 text-xs mb-4">
-                Hecho con amor por <span className="text-hw-oro">MrSoniccx</span>
+              <p className="text-tb-textlight/30 text-xs mb-4">
+                Hecho con amor por <span className="text-tb-accent">MrSoniccx</span>
               </p>
 
               <motion.button
                 onClick={onClose}
-                className="px-6 py-2 rounded-xl text-sm font-medium text-hw-negro no-drag"
-                style={{ background: 'linear-gradient(135deg, #C9A84C, #F0C040)' }}
-                whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(201,168,76,0.5)' }}
+                className="px-6 py-2 rounded-xl text-sm font-medium text-tb-bg no-drag"
+                style={{ background: 'linear-gradient(135deg, var(--tb-primary), var(--tb-accent))' }}
+                whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(var(--tb-primary-rgb),0.5)' }}
                 whileTap={{ scale: 0.95 }}
               >
                 ✨ ¡Gracias!

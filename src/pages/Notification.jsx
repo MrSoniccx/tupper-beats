@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import useAppStore from '../store/useAppStore'
-import HogwartsNotification from '../themes/hogwarts/Notification'
+import { getTheme } from '../themes'
 
 export default function NotificationPage() {
-  const { currentTrack, setCurrentTrack, setIsPlaying, setProgress, setShuffle, setRepeatMode } = useAppStore()
+  const { currentTrack, setCurrentTrack, setIsPlaying, setProgress, setShuffle, setRepeatMode, activeTheme } = useAppStore()
+  const ThemeNotification = getTheme(activeTheme).Notification
   const [isVisible, setIsVisible] = useState(true)
   const shouldHideOnExit = useRef(false)
 
@@ -28,8 +29,6 @@ export default function NotificationPage() {
       setIsVisible(false)
     })
 
-    window.electronAPI?.storeGet('activeTheme', 'hogwarts')
-
     return () => {
       window.electronAPI?.removeAllListeners('track-changed')
       window.electronAPI?.removeAllListeners('prepare-hide-notification')
@@ -51,7 +50,7 @@ export default function NotificationPage() {
   }, [])
 
   return (
-    <HogwartsNotification
+    <ThemeNotification
       track={currentTrack}
       isVisible={isVisible}
       onClose={handleClose}

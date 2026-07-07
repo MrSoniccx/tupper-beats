@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 220" width="240" height="220">
+  <defs>
+    <radialGradient id="axo-body" cx="35%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#FFD3EA"/>
+      <stop offset="100%" stop-color="#FFA9D6"/>
+    </radialGradient>
+  </defs>
+
+  <!-- cola -->
+  <path d="M60 165 Q20 175 15 145 Q35 150 55 150 Z" fill="url(#axo-body)"/>
+
+  <!-- patitas -->
+  <ellipse cx="95"  cy="178" rx="12" ry="8" fill="#FF9DCB"/>
+  <ellipse cx="150" cy="178" rx="12" ry="8" fill="#FF9DCB"/>
+  <ellipse cx="82"  cy="150" rx="10" ry="7" fill="#FF9DCB" transform="rotate(-18 82 150)"/>
+  <ellipse cx="168" cy="150" rx="10" ry="7" fill="#FF9DCB" transform="rotate(18 168 150)"/>
+
+  <!-- cuerpo -->
+  <ellipse cx="122" cy="140" rx="62" ry="46" fill="url(#axo-body)"/>
+  <!-- pancita -->
+  <ellipse cx="122" cy="158" rx="38" ry="20" fill="#FFE7F5"/>
+
+  <!-- branquias izquierda -->
+  <g stroke="#FF6FA5" stroke-width="7" stroke-linecap="round" fill="none">
+    <path d="M78 78 Q48 68 38 46"/>
+    <path d="M82 90 Q50 88 36 72"/>
+    <path d="M86 103 Q54 108 40 100"/>
+  </g>
+  <circle cx="38"  cy="46"  r="6" fill="#FF9DCB"/>
+  <circle cx="36"  cy="72"  r="6" fill="#FF9DCB"/>
+  <circle cx="40"  cy="100" r="6" fill="#FF9DCB"/>
+
+  <!-- branquias derecha -->
+  <g stroke="#FF6FA5" stroke-width="7" stroke-linecap="round" fill="none">
+    <path d="M166 78 Q196 68 206 46"/>
+    <path d="M162 90 Q194 88 208 72"/>
+    <path d="M158 103 Q190 108 204 100"/>
+  </g>
+  <circle cx="206" cy="46"  r="6" fill="#FF9DCB"/>
+  <circle cx="208" cy="72"  r="6" fill="#FF9DCB"/>
+  <circle cx="204" cy="100" r="6" fill="#FF9DCB"/>
+
+  <!-- cabeza -->
+  <ellipse cx="122" cy="82" rx="54" ry="46" fill="url(#axo-body)"/>
+
+  <!-- sonrojo -->
+  <ellipse cx="90"  cy="95" rx="11" ry="7" fill="#FF6FA5" opacity="0.45"/>
+  <ellipse cx="154" cy="95" rx="11" ry="7" fill="#FF6FA5" opacity="0.45"/>
+
+  <!-- ojos -->
+  <circle cx="102" cy="78" r="8" fill="#3A2233"/>
+  <circle cx="142" cy="78" r="8" fill="#3A2233"/>
+  <circle cx="99"  cy="75" r="2.6" fill="#FFFFFF"/>
+  <circle cx="139" cy="75" r="2.6" fill="#FFFFFF"/>
+
+  <!-- sonrisa -->
+  <path d="M112 96 Q122 104 132 96" stroke="#B24E7A" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+</svg>

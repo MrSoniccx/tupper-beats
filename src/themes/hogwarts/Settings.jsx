@@ -2,6 +2,24 @@
 // Exporta estilos y decoraciones que Settings.jsx puede consumir
 
 import { motion } from 'framer-motion'
+import { Mascot } from './Background'
+
+// Insignia de la barra lateral — mascota + nombre del tema
+export function SidebarBadge() {
+  return (
+    <div style={{ textAlign:'center', padding:'4px 0 14px',
+      borderBottom:'1px solid rgba(var(--tb-primary-rgb),0.1)', marginBottom:8,
+    }}>
+      <motion.div animate={{ y:[0,-2,0] }} transition={{ duration:3, repeat:Infinity, ease:'easeInOut' }}>
+        <Mascot width={130} opacity={1} />
+      </motion.div>
+      <p style={{ fontFamily:'var(--tb-font-heading)', fontSize:13,
+        color:'rgba(var(--tb-primary-rgb),0.6)', letterSpacing:1, marginTop:-4,
+        textShadow:'0 0 12px rgba(var(--tb-primary-rgb),0.3)',
+      }}>Hogwarts</p>
+    </div>
+  )
+}
 
 // Vela flotante decorativa para el Gran Comedor
 export function FloatingCandle({ style, delay = 0 }) {

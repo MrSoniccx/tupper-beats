@@ -308,7 +308,16 @@ ipcMain.handle('logout-spotify', () => {
 
 // ─── IPC: temas y settings ────────────────────────────────────────────────
 ipcMain.handle('get-active-theme', () => store.get('activeTheme', 'hogwarts'))
-ipcMain.handle('set-active-theme', (_, theme) => { store.set('activeTheme', theme); return true })
+ipcMain.handle('set-active-theme', (_, theme) => {
+  store.set('activeTheme', theme)
+  // Avisar a TODAS las ventanas (incluida la que lo disparó) para que la
+  // ventana de notificación (proceso/renderer separado) cambie de tema al
+  // instante, sin esperar a que se vuelva a abrir.
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) win.webContents.send('theme-changed', theme)
+  })
+  return true
+})
 ipcMain.on('update-notification-settings', (_, settings) => {
   if (settings.mode)     { store.set('notificationMode', settings.mode); updateNotificationLevel() }
   if (settings.position) {
@@ -381,6 +390,18 @@ ipcMain.on('set-notification-screen', (_, idx) => {
 // Exponer token válido (con auto-refresh) al renderer
 ipcMain.handle('get-valid-token', () => getValidToken(store))
 
+// Diagnóstico de búsqueda de Spotify — el renderer (Settings o la notificación)
+// manda acá los fallos de spotifyGet/searchSpotify para que se vean en ESTA
+// terminal (la de `npm run dev`), porque console.warn del renderer sólo se ve
+// en el DevTools de esa ventana en particular, no en esta terminal.
+ipcMain.on('log-spotify-error', (event, info) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const source = win === notificationWindow ? 'NOTIFICACIÓN' : win === mainWindow ? 'SETTINGS' : 'desconocida'
+  const line = `[TupperBeats][${source}] ${info?.path ?? ''} → ${info?.reason ?? ''} ${info?.detail ?? ''}`
+  console.log(line)
+  log.info(line)
+})
+
 // Listar todas las pantallas disponibles
 ipcMain.handle('get-displays', () => {
   return screen.getAllDisplays().map((d, i) => ({
@@ -438,6 +459,16 @@ ipcMain.on('playback-mode-changed', (event, data) => {
   BrowserWindow.getAllWindows().forEach(win => {
     if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
       win.webContents.send('playback-mode-changed', data)
+    }
+  })
+})
+
+// IPC: sincronizar el modo manual de "Mis canciones" (cola local) entre
+// ventanas — mismo patrón que playback-mode-changed, ver preload.js
+ipcMain.on('liked-queue-changed', (event, data) => {
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
+      win.webContents.send('liked-queue-changed', data)
     }
   })
 })

@@ -6,9 +6,10 @@ import VolumeSlider from '../../components/VolumeSlider'
 import { IconClose, IconShuffle, IconRepeatContext, IconRepeatOne, IconQueueAdd, IconCheck } from '../../components/Icons'
 import useAppStore from '../../store/useAppStore'
 import { useSpotifyControls } from '../../components/useSpotifyControls'
+import { useSpotifySearch } from '../../hooks/useSpotifySearch'
 import {
   fetchPlayerState, setShuffle as apiSetShuffle, setRepeat as apiSetRepeat,
-  fetchQueue, searchSpotify, addToQueue as apiAddToQueue, fetchSavedTracks,
+  fetchQueue, addToQueue as apiAddToQueue, fetchSavedTracks,
 } from '../../lib/spotifyAPI'
 
 
@@ -417,12 +418,13 @@ function SectionLabel({ children }) {
 function ExpandedPanel({ onPlayUri, onAddToQueue, onPlayQueueIndex }) {
   const [queueFull, setQueueFull] = useState(null)
   const [search, setSearch] = useState('')
-  const [spotifyResults, setSpotifyResults] = useState([])
-  const [searching, setSearching] = useState(false)
-  const [searchError, setSearchError] = useState(false)
   const [likedReady, setLikedReady] = useState(!!likedCache)
   const inputRef = useRef(null)
-  const timerRef = useRef(null)
+
+  // Búsqueda en Spotify — mismo hook compartido que usa el buscador de
+  // Settings (GlobalSearch), para que ambos se comporten idénticamente en
+  // vez de tener cada uno su propia reimplementación que puede divergir.
+  const { results: spotifyResults, loading: searching, error: searchError } = useSpotifySearch(search, { limit: 12 })
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 120)
@@ -436,50 +438,9 @@ function ExpandedPanel({ onPlayUri, onAddToQueue, onPlayQueueIndex }) {
         queueIndex: idx, // posición real en la cola (0 = la próxima)
       })))
     }).catch(() => setQueueFull([]))
-    return () => clearTimeout(timerRef.current)
+    // "Me gusta" — se precarga una sola vez por sesión, queda en cache
+    ensureLikedCache().then(() => setLikedReady(true))
   }, [])
-
-  // Búsqueda en Spotify con debounce — vía fetch del renderer (igual que el buscador principal).
-  // searchSpotify devuelve `null` si algo falló (sin token, sin red, respuesta no-ok) y un
-  // array (posiblemente vacío) si la búsqueda en sí no encontró nada — hay que distinguirlos,
-  // si no un error de red se ve exactamente igual que "no hay resultados".
-  useEffect(() => {
-    clearTimeout(timerRef.current)
-    if (!search.trim()) { setSpotifyResults([]); setSearchError(false); return }
-    timerRef.current = setTimeout(async () => {
-      setSearching(true)
-      setSearchError(false)
-      const q = search.trim()
-      let items = null
-      try {
-        items = await searchSpotify(q, 12)
-        if (items === null) {
-          // Reintento único — a veces coincide con un refresh de token en curso
-          await new Promise(r => setTimeout(r, 400))
-          items = await searchSpotify(q, 12)
-        }
-      } catch (err) {
-        console.warn('[TupperBeats] Búsqueda en Spotify (notificación) falló:', err)
-        items = null
-      }
-      if (items === null) {
-        setSearchError(true)
-        setSpotifyResults([])
-      } else {
-        setSpotifyResults(items.map(i => ({
-          uri: i.uri, name: i.name,
-          artist: i.artists?.map(a => a.name).join(', ') || '',
-          albumArt: i.album?.images?.[1]?.url || i.album?.images?.[0]?.url || '',
-        })))
-      }
-      setSearching(false)
-      // "Me gusta" se precarga recién DESPUÉS de que la búsqueda a Spotify ya resolvió
-      // (una sola vez por sesión, queda en cache) — para que no compitan por la misma
-      // llamada de token al mismo tiempo.
-      ensureLikedCache().then(() => setLikedReady(true))
-    }, 380)
-    return () => clearTimeout(timerRef.current)
-  }, [search])
 
   const q = search.trim().toLowerCase()
   const isSearching = !!q

@@ -28,13 +28,13 @@ export default function PlayerControls({ size = 'md', className = '' }) {
 
       <motion.button
         onClick={togglePlay}
-        className="flex items-center justify-center rounded-full text-hw-negro no-drag"
+        className="flex items-center justify-center rounded-full text-tb-bg no-drag"
         style={{
           width: cfg.play, height: cfg.play,
-          background: 'linear-gradient(135deg, #F0C040, #C9A84C)',
-          boxShadow: '0 2px 12px rgba(201,168,76,0.5)',
+          background: 'linear-gradient(135deg, var(--tb-accent), var(--tb-primary))',
+          boxShadow: '0 2px 12px rgba(var(--tb-primary-rgb),0.5)',
         }}
-        whileHover={{ scale: 1.08, boxShadow: '0 0 24px rgba(201,168,76,0.8)' }}
+        whileHover={{ scale: 1.08, boxShadow: '0 0 24px rgba(var(--tb-primary-rgb),0.8)' }}
         whileTap={{ scale: 0.92 }}
         title={isPlaying ? 'Pausar' : 'Reproducir'}
       >

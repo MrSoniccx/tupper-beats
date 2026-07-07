@@ -15,18 +15,59 @@ async function getToken() {
 }
 
 // ─── GET genérico ────────────────────────────────────────────────────────────
+// Nota de depuración: antes esta función devolvía `null` en TODOS los casos de
+// falla (sin token, HTTP no-ok, excepción de red) sin dejar ningún rastro —
+// eso hacía imposible saber, con los mismos síntomas para el usuario, si el
+// problema real era un token vencido (401), falta de permisos (403), rate
+// limit (429) u otra cosa.
+//
+// El console.warn de acá solo se ve en el DevTools de ESA ventana (Settings o
+// notificación tienen cada una el suyo) — no en la terminal de `npm run dev`.
+// Por eso también mandamos el detalle por IPC al proceso principal, que sí
+// imprime en esa terminal, etiquetado con qué ventana lo disparó.
+function reportSpotifyError(path, reason, detail) {
+  console.warn(`[TupperBeats] spotifyGet(${path}): ${reason}`, detail ?? '')
+  try { window.electronAPI?.logSpotifyError?.({ path, reason, detail: detail ? String(detail).slice(0, 300) : '' }) } catch {}
+}
+
 export async function spotifyGet(path) {
   const token = await getToken()
-  if (!token) return null
+  if (!token) {
+    reportSpotifyError(path, 'sin token disponible')
+    return null
+  }
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { Authorization: `Bearer ${token}` },
+      // 'no-store': la ventana principal y la de notificación comparten la
+      // misma sesión/caché HTTP de Chromium (no usan `partition` separados).
+      // Sin esto, una respuesta vacía/abortada que quede cacheada para una
+      // URL de búsqueda (ej. por la vieja lógica de reintento, que pegaba el
+      // mismo fetch dos veces seguidas) puede quedar servida desde caché en
+      // el próximo intento — 200 "ok" pero con body vacío — para SIEMPRE,
+      // aunque el token y la red estén perfectamente bien. Esto es exactamente
+      // lo que loguearon los tests: notificación -> "searchSpotify devolvió
+      // null" sin ningún HTTP-error de por medio, porque nunca llegó a
+      // pegarle a la red — vino de una entrada de caché vacía.
+      cache: 'no-store',
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      let body = ''
+      try { body = await res.text() } catch {}
+      reportSpotifyError(path, `HTTP ${res.status}`, body)
+      return null
+    }
     const text = await res.text()
-    if (!text.trim()) return { status: res.status } // 204 No Content
+    if (!text.trim()) {
+      // Para /me/player esto es normal (204 = sin dispositivo activo). Para
+      // cualquier otro endpoint (como /search) es anómalo — lo reportamos
+      // igual para que quede visible en la terminal si vuelve a pasar.
+      if (res.status !== 204) reportSpotifyError(path, `respuesta vacía inesperada (HTTP ${res.status})`)
+      return { status: res.status }
+    }
     return JSON.parse(text)
-  } catch {
+  } catch (err) {
+    reportSpotifyError(path, 'excepción de red', err?.message || err)
     return null
   }
 }
@@ -60,7 +101,7 @@ export async function fetchPlaylists(offset = 0) {
 }
 
 export async function fetchPlaylistTracks(playlistId, offset = 0) {
-  return spotifyGet(`/playlists/${playlistId}/tracks?limit=1&offset=${offset}`)
+  return spotifyGet(`/playlists/${playlistId}/items?limit=10&offset=${offset}`)
 }
 
 export async function fetchAlbumTracks(albumId, offset = 0) {
@@ -80,7 +121,19 @@ export async function addToQueue(uri) {
 export async function searchSpotify(query, limit = 30) {
   const q = encodeURIComponent(query.trim())
   const data = await spotifyGet(`/search?q=${q}&type=track&limit=${limit}`)
-  return data?.tracks?.items ?? null
+  const items = data?.tracks?.items ?? null
+  // Log de confirmación — así en la terminal se ve, para cada ventana, si la
+  // búsqueda realmente llegó a Spotify y cuántos resultados trajo (o si
+  // "items" quedó null porque spotifyGet ya falló antes, cuyo motivo se
+  // reportó arriba en reportSpotifyError).
+  try {
+    window.electronAPI?.logSpotifyError?.({
+      path: `/search?q=${q}`,
+      reason: items ? `OK — ${items.length} resultados` : 'searchSpotify devolvió null',
+      detail: '',
+    })
+  } catch {}
+  return items
 }
 
 // ─── Estado del reproductor (shuffle, repeat, volumen) ───────────────────────

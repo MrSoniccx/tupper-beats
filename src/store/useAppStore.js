@@ -21,6 +21,9 @@ const useAppStore = create((set, get) => ({
     set({ activeTheme: theme })
     await window.electronAPI?.setActiveTheme(theme)
   },
+  // Sólo actualiza el estado local — usado cuando el cambio de tema viene
+  // de OTRA ventana (evento 'theme-changed'), para no reenviarlo a main otra vez
+  setActiveThemeLocal: (theme) => set({ activeTheme: theme }),
 
   notificationMode: 'normal',
   setNotificationMode: async (mode) => {
@@ -79,6 +82,15 @@ const useAppStore = create((set, get) => ({
   setSavedTracksLoading: (val) => set({ savedTracksLoading: val }),
   setSavedTracksProgress: (p) => set({ savedTracksProgress: p }),
   clearSavedTracksCache: () => set({ savedTracksCache: null, savedTracksCacheTotal: 0, savedTracksProgress: null }),
+
+  // Modo manual "Mis canciones" — cola LOCAL (no la cola real de Spotify).
+  // Se activa al tocar una canción desde "Mis canciones": mientras está activo,
+  // Siguiente/Anterior avanzan por este arreglo en vez de llamar a
+  // /me/player/next de Spotify. Cualquier reproducción "externa" (playlist,
+  // álbum, búsqueda, cola real) lo desactiva — ver useSpotifyControls.js.
+  likedQueue: null, // null | { uris: string[], idx: number }
+  setLikedQueue: (q) => set({ likedQueue: q }),
+  clearLikedQueue: () => set({ likedQueue: null }),
 
   // Volumen (sincronizado entre VolumeSliders del mismo proceso)
   volume: 70,

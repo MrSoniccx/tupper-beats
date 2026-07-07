@@ -55,10 +55,23 @@ async function refreshAccessToken(store) {
       let data = ''
       res.on('data', c => (data += c))
       res.on('end', () => {
-        const json = JSON.parse(data)
-        if (json.access_token) {
+        // Parseo seguro: si Spotify devuelve algo no-JSON (ej. 502/HTML) esto
+        // no debe tirar una excepción sin capturar dentro del callback del
+        // socket — eso dejaba la promesa colgada para siempre y cualquier
+        // await getValidToken()/refreshAccessToken() nunca se resolvía.
+        let json = null
+        try { json = JSON.parse(data) } catch { json = null }
+        if (json?.access_token) {
           store.set('spotifyAccessToken', json.access_token)
           store.set('spotifyTokenExpiry', Date.now() + json.expires_in * 1000)
+          // El flujo Authorization Code + PKCE de Spotify ROTA el refresh_token:
+          // cada refresh puede (y normalmente lo hace) devolver uno nuevo, y el
+          // anterior queda invalidado. Si no lo guardamos acá, el próximo
+          // refresh reusa el refresh_token viejo (ya usado) → Spotify responde
+          // invalid_grant → getValidToken() falla para SIEMPRE a partir de ese
+          // punto, hasta volver a loguearse. Este era el bug real detrás del
+          // "No se pudo conectar con Spotify" persistente.
+          if (json.refresh_token) store.set('spotifyRefreshToken', json.refresh_token)
           resolve(json.access_token)
         } else {
           resolve(null)
@@ -72,6 +85,16 @@ async function refreshAccessToken(store) {
 }
 
 // ─── Obtener token válido ──────────────────────────────────────────────────
+// Single-flight: si dos llamadas concurrentes (ej. el polling del proceso
+// principal Y una búsqueda desde la ventana de notificación, que suelen
+// dispararse casi al mismo tiempo porque la notificación aparece justo cuando
+// el polling detecta un cambio de canción) ven el token vencido a la vez,
+// SIN este guard cada una dispara su propio refreshAccessToken() en paralelo,
+// ambas usando el mismo refresh_token (todavía no rotado) — y por el rotado
+// de Spotify, una de las dos puede quedar invalidada o pisar el resultado de
+// la otra. Con el guard, la segunda llamada espera la misma promesa en vuelo
+// en vez de disparar un segundo refresh.
+let refreshPromise = null
 async function getValidToken(store) {
   const expiry = store.get('spotifyTokenExpiry', 0)
   const token  = store.get('spotifyAccessToken')
@@ -79,7 +102,10 @@ async function getValidToken(store) {
   if (!token) return null
   if (Date.now() < expiry - 60000) return token // Válido por más de 1 min
 
-  return await refreshAccessToken(store)
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken(store).finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
 }
 
 // ─── Currently playing ─────────────────────────────────────────────────────
@@ -281,7 +307,7 @@ async function getPlaylistTracks(store, playlistId, offset = 0) {
   if (!token) return null
   const options = {
     hostname: 'api.spotify.com',
-    path:     `/v1/playlists/${playlistId}/tracks?limit=100&offset=${offset}`,
+    path:     `/v1/playlists/${playlistId}/items?limit=100&offset=${offset}`,
     method:   'GET',
     headers:  { Authorization: `Bearer ${token}` },
   }

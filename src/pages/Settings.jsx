@@ -2,13 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import useAppStore from '../store/useAppStore'
-// URL del castillo de Hogwarts (public/assets/)
-const HOGWARTS_SVG = './assets/hogwarts.svg'
+import { getTheme, listThemes } from '../themes'
 import PlayerControls from '../components/PlayerControls'
 import ProgressBar from '../components/ProgressBar'
 import VolumeSlider from '../components/VolumeSlider'
-import HogwartsNotification from '../themes/hogwarts/Notification'
 import { useSpotifyControls } from '../components/useSpotifyControls'
+import { useSpotifySearch } from '../hooks/useSpotifySearch'
 import {
   IconMusic, IconBell, IconPalette, IconSettings, IconInfo,
   IconClose, IconMinimize, IconMaximize, IconRefresh, IconCheck, IconLogout,
@@ -22,162 +21,11 @@ import {
   addToQueue as apiAddToQueue,
 } from '../lib/spotifyAPI'
 import tupperMessages from '../tupper-messages.json'
+import { ensureSavedTracksLoaded } from '../lib/savedTracks'
 
-// ─── Castillo de Hogwarts (usa el SVG real de /public/assets/hogwarts.svg) ──────
-function HogwardsCastle({ width = 220, opacity = 0.13, className = '', style = {} }) {
-  // hogwarts-transparent.svg: sin rect de fondo, viewBox recortado al castillo
-  // sepia+hue-rotate tiñe los paths negros de dorado
-  return (
-    <div className={className} style={{ display:'flex', justifyContent:'center', alignItems:'center', ...style }}>
-      <img
-        src="./assets/hogwarts-transparent.svg"
-        width={width}
-        height={width}
-        alt=""
-        draggable={false}
-        style={{
-          pointerEvents: 'none',
-          opacity: opacity,
-          filter: 'sepia(1) hue-rotate(5deg) saturate(4) brightness(4.5)',
-          objectFit: 'contain',
-          display: 'block',
-        }}
-      />
-    </div>
-  )
-}
-
-// ─── Animaciones CSS globales ─────────────────────────────────────────────────
-const GLOBAL_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&display=swap');
-
-@keyframes tb-candle {
-  0%,100% { transform: scaleX(1) rotate(0deg); opacity:.85; }
-  35%     { transform: scaleX(0.65) rotate(2.5deg); opacity:1; }
-  70%     { transform: scaleX(1.15) rotate(-1.5deg); opacity:.9; }
-}
-@keyframes tb-star-pulse {
-  0%,100% { opacity:0.06; transform:scale(1); }
-  50%     { opacity:0.6; transform:scale(1.6); }
-}
-@keyframes tb-float-castle {
-  0%,100% { transform: translateY(0px) rotate(0deg); }
-  50%     { transform: translateY(-6px) rotate(0.3deg); }
-}
-@keyframes tb-shimmer {
-  0%   { background-position: -200% center; }
-  100% { background-position: 200% center; }
-}
-@keyframes tb-glow-pulse {
-  0%,100% { box-shadow: 0 0 20px rgba(201,168,76,0.15), 0 0 60px rgba(201,168,76,0.05); }
-  50%     { box-shadow: 0 0 40px rgba(201,168,76,0.3),  0 0 80px rgba(201,168,76,0.12); }
-}
-@keyframes tb-border-glow {
-  0%,100% { border-color: rgba(201,168,76,0.2); }
-  50%     { border-color: rgba(240,192,64,0.5); }
-}
-@keyframes tb-rune-fade {
-  0%,100% { opacity:0.04; }
-  50%     { opacity:0.18; }
-}
-@keyframes tb-lightning {
-  0%,90%,100% { opacity:0; }
-  92%         { opacity:0.7; }
-  94%         { opacity:0; }
-  96%         { opacity:0.4; }
-}
-@keyframes tb-magic-ring {
-  0%   { transform: rotate(0deg) scale(1);   opacity: 0.3; }
-  50%  { transform: rotate(180deg) scale(1.05); opacity: 0.6; }
-  100% { transform: rotate(360deg) scale(1);  opacity: 0.3; }
-}
-
-/* Scrollbar mágico */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.3); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(201,168,76,0.55); }
-
-/* Inputs */
-input::placeholder { color: rgba(201,168,76,0.3); }
-input { caret-color: #F0C040; }
-`
-
-// ─── Partículas de fondo ──────────────────────────────────────────────────────
-const STARS = Array.from({ length: 40 }, (_, i) => ({
-  id: i, top: (Math.sin(i * 137.5) * 40 + 50), left: (i * 7.3) % 100,
-  size: (i % 3 === 0) ? 2 : 1,
-  delay: (i * 0.22) % 5, dur: 2.5 + (i % 4) * 0.7,
-}))
-
-const SIDE_CANDLES = [
-  { left: '1.5%', top: '12%', delay: 0,   dur: 2.8, h: 24 },
-  { left: '1.5%', top: '38%', delay: 0.6, dur: 3.1, h: 20 },
-  { left: '1.5%', top: '64%', delay: 1.2, dur: 2.6, h: 26 },
-  { right:'1.5%', top: '18%', delay: 0.3, dur: 3.0, h: 22 },
-  { right:'1.5%', top: '48%', delay: 0.9, dur: 2.7, h: 24 },
-  { right:'1.5%', top: '74%', delay: 1.5, dur: 3.3, h: 20 },
-]
-
-const RUNES = ['ᚠ','ᚢ','ᚦ','ᚨ','ᚱ','ᚲ','ᚷ','ᚹ','ᚺ','ᚾ','ᛁ','ᛃ','ᛇ','ᛈ']
-
-function SideCandle({ style, delay, dur, h }) {
-  return (
-    <motion.div style={{ position:'absolute', pointerEvents:'none', zIndex:0, ...style }}
-      animate={{ y:[0,-6,0], opacity:[0.45,0.85,0.45] }}
-      transition={{ duration: dur, delay, repeat: Infinity, ease:'easeInOut' }}
-    >
-      <div style={{ width:5, height:11,
-        background:'radial-gradient(ellipse at 40% 60%, #fffde7, #FFD700 50%, #FF8C00)',
-        borderRadius:'50% 50% 28% 28%', marginLeft:3, marginBottom:1,
-        boxShadow:'0 0 8px #FFD700, 0 -4px 10px rgba(255,140,0,0.5)',
-        animation:`tb-candle ${dur*0.4}s ease-in-out infinite`,
-      }} />
-      <div style={{ width:10, height:h,
-        background:'linear-gradient(to bottom, #F5E6C8, #D4BF8A 60%, #B8A060)',
-        borderRadius:3, boxShadow:'inset -2px 0 3px rgba(0,0,0,0.15)',
-      }} />
-    </motion.div>
-  )
-}
-
-function AppBackground() {
-  return (
-    <>
-      <style>{GLOBAL_CSS}</style>
-      {/* Estrellas */}
-      {STARS.map(s => (
-        <div key={s.id} style={{
-          position:'absolute', top:`${s.top}%`, left:`${s.left}%`,
-          width:s.size, height:s.size, borderRadius:'50%',
-          background:'#FFD700', pointerEvents:'none', zIndex:0,
-          boxShadow:`0 0 ${s.size*2}px #FFD700`,
-          animation:`tb-star-pulse ${s.dur}s ${s.delay}s ease-in-out infinite`,
-        }} />
-      ))}
-      {/* Runas muy sutiles */}
-      {RUNES.slice(0,8).map((r,i) => (
-        <div key={i} style={{
-          position:'absolute',
-          top: `${15 + i*12}%`,
-          left: i % 2 === 0 ? '0.5%' : undefined,
-          right: i % 2 === 1 ? '0.5%' : undefined,
-          fontSize:9, color:'#C9A84C', pointerEvents:'none', fontFamily:'serif',
-          animation:`tb-rune-fade ${3+i*0.5}s ${i*0.4}s ease-in-out infinite`,
-          zIndex:0,
-        }}>{r}</div>
-      ))}
-      {/* Velas laterales */}
-      {SIDE_CANDLES.map((c,i) => <SideCandle key={i} {...c} />)}
-      {/* Castillo grande de fondo */}
-      <div style={{ position:'absolute', bottom:0, left:'50%', transform:'translateX(-50%)', zIndex:0,
-        animation:'tb-float-castle 8s ease-in-out infinite',
-      }}>
-        <HogwardsCastle width={340} opacity={0.08} />
-      </div>
-    </>
-  )
-}
+// La decoración de fondo (castillo/estrellas en Hogwarts, burbujas/ajolote en
+// Axolote) ahora vive en src/themes/<tema>/Background.jsx — Settings() la
+// obtiene del tema activo vía getTheme() y la renderiza como <Background />.
 
 // ─── Barra de título ─────────────────────────────────────────────────────────
 // ─── Búsqueda global en el título ─────────────────────────────────────────────
@@ -186,11 +34,12 @@ function GlobalSearch() {
   const { playUri } = useSpotifyControls()
   const [query, setQuery]         = useState('')
   const [focused, setFocused]     = useState(false)
-  const [apiResults, setApiResults] = useState([])
-  const [loading, setLoading]     = useState(false)
-  const timerRef = useRef(null)
   const inputRef = useRef(null)
   const containerRef = useRef(null)
+
+  // Búsqueda en Spotify — mismo hook compartido que usa el panel de la
+  // notificación, para que ambos buscadores se comporten idénticamente.
+  const { results: apiResults, loading } = useSpotifySearch(query, { limit: 10 })
 
   // Cerrar al hacer click fuera
   useEffect(() => {
@@ -202,25 +51,6 @@ function GlobalSearch() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
-
-  // Buscar en Spotify con debounce
-  useEffect(() => {
-    clearTimeout(timerRef.current)
-    if (!query.trim()) { setApiResults([]); return }
-    timerRef.current = setTimeout(async () => {
-      setLoading(true)
-      try {
-        const items = await searchSpotify(query.trim(), 10)
-        setApiResults(Array.isArray(items) ? items.map(i => ({
-          uri:i.uri, name:i.name,
-          artist:i.artists?.map(a=>a.name).join(', ')||'',
-          albumArt:i.album?.images?.[1]?.url||i.album?.images?.[0]?.url||'',
-        })) : [])
-      } catch { setApiResults([]) }
-      setLoading(false)
-    }, 380)
-    return () => clearTimeout(timerRef.current)
-  }, [query])
 
   // Favoritas que coinciden (top 3)
   const favMatches = query.trim() && savedTracksCache
@@ -251,29 +81,29 @@ function GlobalSearch() {
     <div onClick={() => handlePlay(track.uri)}
       className="no-drag"
       style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 10px', borderRadius:8, cursor:'pointer', transition:'background 0.15s' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'rgba(201,168,76,0.08)'}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(var(--tb-primary-rgb),0.08)'}
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
     >
       {track.albumArt
         ? <img src={track.albumArt} alt="" style={{ width:28, height:28, borderRadius:5, objectFit:'cover', flexShrink:0 }} />
-        : <div style={{ width:28, height:28, borderRadius:5, background:'rgba(201,168,76,0.08)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>🎵</div>
+        : <div style={{ width:28, height:28, borderRadius:5, background:'rgba(var(--tb-primary-rgb),0.08)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>🎵</div>
       }
       <div style={{ minWidth:0, flex:1 }}>
-        <p style={{ fontSize:12, color:'rgba(245,230,200,0.92)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{track.name}</p>
-        <p style={{ fontSize:10, color:'rgba(245,230,200,0.4)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{track.artist}</p>
+        <p style={{ fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.92)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{track.name}</p>
+        <p style={{ fontSize:10, color:'rgba(var(--tb-textLight-rgb),0.4)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{track.artist}</p>
       </div>
       {badge && (
-        <span style={{ fontSize:8, color:'#F0C040', background:'rgba(201,168,76,0.15)',
-          border:'1px solid rgba(201,168,76,0.3)', borderRadius:4, padding:'1px 5px', flexShrink:0,
+        <span style={{ fontSize:8, color:'var(--tb-accent)', background:'rgba(var(--tb-primary-rgb),0.15)',
+          border:'1px solid rgba(var(--tb-primary-rgb),0.3)', borderRadius:4, padding:'1px 5px', flexShrink:0,
         }}>{badge}</span>
       )}
       {/* Acciones */}
       <div className="no-drag" style={{ display:'flex', gap:3, flexShrink:0 }}>
         <motion.button onClick={e => { e.stopPropagation(); handleAddToQueue(track.uri) }}
           title="Añadir a cola"
-          style={{ background:'none', border:'1px solid rgba(201,168,76,0.2)', borderRadius:5,
-            cursor:'pointer', color:'rgba(201,168,76,0.5)', fontSize:9, padding:'2px 6px', lineHeight:1 }}
-          whileHover={{ color:'#F0C040', borderColor:'rgba(201,168,76,0.6)', background:'rgba(201,168,76,0.08)' }}
+          style={{ background:'none', border:'1px solid rgba(var(--tb-primary-rgb),0.2)', borderRadius:5,
+            cursor:'pointer', color:'rgba(var(--tb-primary-rgb),0.5)', fontSize:9, padding:'2px 6px', lineHeight:1 }}
+          whileHover={{ color:'var(--tb-accent)', borderColor:'rgba(var(--tb-primary-rgb),0.6)', background:'rgba(var(--tb-primary-rgb),0.08)' }}
           whileTap={{ scale:0.85 }}
         >+cola</motion.button>
       </div>
@@ -286,7 +116,7 @@ function GlobalSearch() {
     >
       {/* Input */}
       <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
-        <span style={{ position:'absolute', left:9, fontSize:11, color:'rgba(201,168,76,0.45)', pointerEvents:'none' }}>🔍</span>
+        <span style={{ position:'absolute', left:9, fontSize:11, color:'rgba(var(--tb-primary-rgb),0.45)', pointerEvents:'none' }}>🔍</span>
         <input ref={inputRef}
           value={query}
           onChange={e => setQuery(e.target.value)}
@@ -294,18 +124,18 @@ function GlobalSearch() {
           placeholder="Buscar canción..."
           style={{
             width:'100%', padding:'5px 28px 5px 26px',
-            background: focused ? 'rgba(201,168,76,0.08)' : 'rgba(255,255,255,0.04)',
-            border:`1px solid ${focused ? 'rgba(201,168,76,0.5)' : 'rgba(201,168,76,0.18)'}`,
+            background: focused ? 'rgba(var(--tb-primary-rgb),0.08)' : 'rgba(255,255,255,0.04)',
+            border:`1px solid ${focused ? 'rgba(var(--tb-primary-rgb),0.5)' : 'rgba(var(--tb-primary-rgb),0.18)'}`,
             borderRadius:10, outline:'none',
-            fontSize:12, color:'rgba(245,230,200,0.9)',
+            fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.9)',
             fontFamily:'inherit', transition:'all 0.2s',
-            boxShadow: focused ? '0 0 0 3px rgba(201,168,76,0.06)' : 'none',
+            boxShadow: focused ? '0 0 0 3px rgba(var(--tb-primary-rgb),0.06)' : 'none',
           }}
         />
         {query && (
-          <button onClick={() => { setQuery(''); setApiResults([]); inputRef.current?.focus() }}
+          <button onClick={() => { setQuery(''); inputRef.current?.focus() }}
             style={{ position:'absolute', right:7, background:'none', border:'none',
-              cursor:'pointer', color:'rgba(245,230,200,0.4)', fontSize:11, padding:2,
+              cursor:'pointer', color:'rgba(var(--tb-textLight-rgb),0.4)', fontSize:11, padding:2,
             }}
           >✕</button>
         )}
@@ -321,10 +151,10 @@ function GlobalSearch() {
             transition={{ type:'spring', stiffness:350, damping:28 }}
             style={{
               position:'absolute', top:'calc(100% + 6px)', left:0, right:0,
-              background:'linear-gradient(160deg, #100c22, #0d0920)',
-              border:'1px solid rgba(201,168,76,0.3)',
+              background:'var(--tb-gradient-dropdown)',
+              border:'1px solid rgba(var(--tb-primary-rgb),0.3)',
               borderRadius:12,
-              boxShadow:'0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(201,168,76,0.08)',
+              boxShadow:'0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(var(--tb-primary-rgb),0.08)',
               overflow:'hidden', zIndex:999, maxHeight:340, overflowY:'auto',
               backdropFilter:'blur(16px)',
             }}
@@ -332,8 +162,8 @@ function GlobalSearch() {
             {/* Favoritas */}
             {favMatches.length > 0 && (
               <>
-                <div style={{ padding:'7px 10px 3px', borderBottom:'1px solid rgba(201,168,76,0.08)' }}>
-                  <p style={{ fontSize:9, color:'rgba(201,168,76,0.5)', letterSpacing:1, fontWeight:600 }}>✨ TUS FAVORITAS</p>
+                <div style={{ padding:'7px 10px 3px', borderBottom:'1px solid rgba(var(--tb-primary-rgb),0.08)' }}>
+                  <p style={{ fontSize:9, color:'rgba(var(--tb-primary-rgb),0.5)', letterSpacing:1, fontWeight:600 }}>✨ TUS FAVORITAS</p>
                 </div>
                 {favMatches.map((t, i) => <ResultRow key={t.uri+i} track={t} badge="♥" />)}
               </>
@@ -343,23 +173,23 @@ function GlobalSearch() {
             {loading && (
               <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px' }}>
                 <motion.div animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:0.8, ease:'linear' }}
-                  style={{ width:12, height:12, border:'2px solid rgba(201,168,76,0.2)', borderTopColor:'#C9A84C', borderRadius:'50%' }}
+                  style={{ width:12, height:12, border:'2px solid rgba(var(--tb-primary-rgb),0.2)', borderTopColor:'var(--tb-primary)', borderRadius:'50%' }}
                 />
-                <p style={{ fontSize:11, color:'rgba(245,230,200,0.4)' }}>Buscando en Spotify...</p>
+                <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.4)' }}>Buscando en Spotify...</p>
               </div>
             )}
             {!loading && spotifyOnly.length > 0 && (
               <>
                 {favMatches.length > 0 && (
-                  <div style={{ padding:'7px 10px 3px', borderTop: favMatches.length ? '1px solid rgba(201,168,76,0.08)' : 'none' }}>
-                    <p style={{ fontSize:9, color:'rgba(201,168,76,0.4)', letterSpacing:1 }}>EN SPOTIFY</p>
+                  <div style={{ padding:'7px 10px 3px', borderTop: favMatches.length ? '1px solid rgba(var(--tb-primary-rgb),0.08)' : 'none' }}>
+                    <p style={{ fontSize:9, color:'rgba(var(--tb-primary-rgb),0.4)', letterSpacing:1 }}>EN SPOTIFY</p>
                   </div>
                 )}
                 {spotifyOnly.map((t, i) => <ResultRow key={t.uri+i} track={t} />)}
               </>
             )}
             {!loading && favMatches.length === 0 && spotifyOnly.length === 0 && (
-              <p style={{ textAlign:'center', fontSize:11, color:'rgba(245,230,200,0.3)', padding:'16px 0' }}>Sin resultados</p>
+              <p style={{ textAlign:'center', fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.3)', padding:'16px 0' }}>Sin resultados</p>
             )}
           </motion.div>
         )}
@@ -369,26 +199,28 @@ function GlobalSearch() {
 }
 
 function TitleBar() {
+  const { activeTheme } = useAppStore()
+  const themeEmoji = getTheme(activeTheme).data.emoji
   return (
     <div className="drag-region flex-shrink-0 flex items-center justify-between px-3"
       style={{ height:46, zIndex:10, position:'relative',
-        background:'linear-gradient(90deg, rgba(8,4,20,0.98), rgba(14,10,30,0.98))',
-        borderBottom:'1px solid rgba(201,168,76,0.2)',
+        background:'var(--tb-gradient-titlebar)',
+        borderBottom:'1px solid rgba(var(--tb-primary-rgb),0.2)',
       }}
     >
       {/* Línea dorada inferior */}
       <div style={{ position:'absolute', bottom:0, left:0, right:0, height:1,
-        background:'linear-gradient(90deg, transparent, rgba(201,168,76,0.6) 30%, rgba(240,192,64,0.8) 50%, rgba(201,168,76,0.6) 70%, transparent)',
+        background:'linear-gradient(90deg, transparent, rgba(var(--tb-primary-rgb),0.6) 30%, rgba(var(--tb-accent-rgb),0.8) 50%, rgba(var(--tb-primary-rgb),0.6) 70%, transparent)',
       }} />
       {/* Logo */}
       <div className="flex items-center gap-2" style={{ flexShrink:0 }}>
-        <motion.span animate={{ textShadow:['0 0 8px rgba(240,192,64,0.4)','0 0 20px rgba(240,192,64,0.8)','0 0 8px rgba(240,192,64,0.4)'] }}
+        <motion.span animate={{ textShadow:['0 0 8px rgba(var(--tb-accent-rgb),0.4)','0 0 20px rgba(var(--tb-accent-rgb),0.8)','0 0 8px rgba(var(--tb-accent-rgb),0.4)'] }}
           transition={{ duration:3, repeat:Infinity }}
           style={{ fontSize:15, lineHeight:1 }}
-        >⚡</motion.span>
-        <span style={{ fontFamily:'"UnifrakturMaguntia", cursive', fontSize:17,
-          color:'rgba(201,168,76,0.95)', letterSpacing:1,
-          textShadow:'0 0 20px rgba(201,168,76,0.4)', whiteSpace:'nowrap',
+        >{themeEmoji}</motion.span>
+        <span style={{ fontFamily:'var(--tb-font-heading)', fontSize:17,
+          color:'rgba(var(--tb-primary-rgb),0.95)', letterSpacing:1,
+          textShadow:'0 0 20px rgba(var(--tb-primary-rgb),0.4)', whiteSpace:'nowrap',
         }}>TupperBeats</span>
       </div>
       {/* Búsqueda global — centro */}
@@ -418,10 +250,10 @@ function Card({ title, icon: Icon, children, className='', glowing=false }) {
     <motion.div
       className={`rounded-2xl border overflow-hidden ${className}`}
       style={{
-        background:'linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(201,168,76,0.02) 100%)',
-        borderColor:'rgba(201,168,76,0.15)',
+        background:'linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(var(--tb-primary-rgb),0.02) 100%)',
+        borderColor:'rgba(var(--tb-primary-rgb),0.15)',
         backdropFilter:'blur(8px)',
-        boxShadow:'0 4px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(201,168,76,0.08)',
+        boxShadow:'0 4px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(var(--tb-primary-rgb),0.08)',
         animation: glowing ? 'tb-glow-pulse 4s ease-in-out infinite' : undefined,
         position:'relative', zIndex:1,
       }}
@@ -431,17 +263,17 @@ function Card({ title, icon: Icon, children, className='', glowing=false }) {
     >
       {title && (
         <div className="flex items-center gap-2.5 px-5 py-3"
-          style={{ borderBottom:'1px solid rgba(201,168,76,0.08)',
-            background:'linear-gradient(90deg, rgba(201,168,76,0.06), transparent)',
+          style={{ borderBottom:'1px solid rgba(var(--tb-primary-rgb),0.08)',
+            background:'linear-gradient(90deg, rgba(var(--tb-primary-rgb),0.06), transparent)',
           }}
         >
-          {Icon && <Icon size={13} style={{ color:'rgba(201,168,76,0.7)', flexShrink:0 }} />}
-          <span style={{ fontSize:11, fontWeight:600, color:'rgba(201,168,76,0.8)',
+          {Icon && <Icon size={13} style={{ color:'rgba(var(--tb-primary-rgb),0.7)', flexShrink:0 }} />}
+          <span style={{ fontSize:11, fontWeight:600, color:'rgba(var(--tb-primary-rgb),0.8)',
             letterSpacing:'0.08em', textTransform:'uppercase', fontFamily:'serif',
           }}>{title}</span>
           {/* Shimmer decorativo en el título */}
           <div style={{ flex:1, height:1,
-            background:'linear-gradient(90deg, rgba(201,168,76,0.2), transparent)',
+            background:'linear-gradient(90deg, rgba(var(--tb-primary-rgb),0.2), transparent)',
           }} />
         </div>
       )}
@@ -470,14 +302,14 @@ function TrackRow({ track, index, onPlay, contextUri }) {
       className="no-drag"
       style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 10px',
         borderRadius:10, cursor:'pointer',
-        background: hov ? 'linear-gradient(90deg, rgba(201,168,76,0.1), rgba(201,168,76,0.05))' : 'transparent',
+        background: hov ? 'linear-gradient(90deg, rgba(var(--tb-primary-rgb),0.1), rgba(var(--tb-primary-rgb),0.05))' : 'transparent',
         transition:'background 0.15s',
         borderBottom:'1px solid rgba(255,255,255,0.02)',
       }}
       whileTap={{ scale:0.99 }}
     >
       <div style={{ width:26, textAlign:'center', flexShrink:0,
-        fontSize:10, color: hov ? '#F0C040' : 'rgba(245,230,200,0.25)',
+        fontSize:10, color: hov ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.25)',
         transition:'color 0.15s',
       }}>
         {hov ? '▶' : index + 1}
@@ -485,32 +317,32 @@ function TrackRow({ track, index, onPlay, contextUri }) {
       {track.albumArt && (
         <motion.img src={track.albumArt} alt="" whileHover={{ scale:1.05 }}
           style={{ width:32, height:32, borderRadius:6, objectFit:'cover', flexShrink:0,
-            border:'1px solid rgba(201,168,76,0.25)',
-            boxShadow: hov ? '0 2px 12px rgba(201,168,76,0.3)' : 'none',
+            border:'1px solid rgba(var(--tb-primary-rgb),0.25)',
+            boxShadow: hov ? '0 2px 12px rgba(var(--tb-primary-rgb),0.3)' : 'none',
             transition:'box-shadow 0.2s',
           }}
         />
       )}
       <div style={{ flex:1, minWidth:0 }}>
-        <p style={{ fontSize:12, color: hov ? '#F5E6C8' : 'rgba(245,230,200,0.85)',
+        <p style={{ fontSize:12, color: hov ? 'var(--tb-textLight)' : 'rgba(var(--tb-textLight-rgb),0.85)',
           overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:500,
           transition:'color 0.15s',
         }}>{track.name}</p>
-        <p style={{ fontSize:10, color:'rgba(245,230,200,0.35)',
+        <p style={{ fontSize:10, color:'rgba(var(--tb-textLight-rgb),0.35)',
           overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1,
         }}>{track.artist}</p>
       </div>
-      <p style={{ fontSize:10, color:'rgba(245,230,200,0.2)', flexShrink:0, marginRight:4 }}>
+      <p style={{ fontSize:10, color:'rgba(var(--tb-textLight-rgb),0.2)', flexShrink:0, marginRight:4 }}>
         {track.duration ? `${Math.floor(track.duration/60000)}:${String(Math.floor((track.duration%60000)/1000)).padStart(2,'0')}` : ''}
       </p>
       {hov && (
         <motion.button initial={{ opacity:0, scale:0.7 }} animate={{ opacity:1, scale:1 }}
           onClick={addQ} className="no-drag" title="Agregar a cola"
           style={{ flexShrink:0,
-            background: queued ? 'rgba(74,222,128,0.15)' : 'rgba(201,168,76,0.1)',
-            border:`1px solid ${queued ? 'rgba(74,222,128,0.4)' : 'rgba(201,168,76,0.3)'}`,
+            background: queued ? 'rgba(74,222,128,0.15)' : 'rgba(var(--tb-primary-rgb),0.1)',
+            border:`1px solid ${queued ? 'rgba(74,222,128,0.4)' : 'rgba(var(--tb-primary-rgb),0.3)'}`,
             borderRadius:6, padding:'3px 6px', cursor:'pointer',
-            color: queued ? '#4ade80' : 'rgba(201,168,76,0.9)',
+            color: queued ? '#4ade80' : 'rgba(var(--tb-primary-rgb),0.9)',
             display:'flex', alignItems:'center', transition:'all 0.2s',
           }}
         >
@@ -529,7 +361,7 @@ function AlbumRow({ album, onPlay, onSelect }) {
       className="no-drag"
       style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 10px',
         borderRadius:10, cursor:'pointer',
-        background: hov ? 'linear-gradient(90deg, rgba(201,168,76,0.1), rgba(201,168,76,0.05))' : 'transparent',
+        background: hov ? 'linear-gradient(90deg, rgba(var(--tb-primary-rgb),0.1), rgba(var(--tb-primary-rgb),0.05))' : 'transparent',
         transition:'background 0.15s',
         borderBottom:'1px solid rgba(255,255,255,0.02)',
       }}
@@ -538,21 +370,21 @@ function AlbumRow({ album, onPlay, onSelect }) {
       {album.imageUrl
         ? <motion.img src={album.imageUrl} alt="" whileHover={{ scale:1.08 }}
             style={{ width:42, height:42, borderRadius:8, objectFit:'cover', flexShrink:0,
-              border:'1px solid rgba(201,168,76,0.25)',
-              boxShadow: hov ? '0 4px 16px rgba(201,168,76,0.3)' : 'none',
+              border:'1px solid rgba(var(--tb-primary-rgb),0.25)',
+              boxShadow: hov ? '0 4px 16px rgba(var(--tb-primary-rgb),0.3)' : 'none',
               transition:'box-shadow 0.2s',
             }}
           />
         : <div style={{ width:42, height:42, borderRadius:8, flexShrink:0,
-            background:'rgba(201,168,76,0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
+            background:'rgba(var(--tb-primary-rgb),0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
           }}>💿</div>
       }
       <div style={{ flex:1, minWidth:0 }} onClick={() => onSelect && onSelect(album)}>
-        <p style={{ fontSize:12, color: hov ? '#F5E6C8' : 'rgba(245,230,200,0.85)',
+        <p style={{ fontSize:12, color: hov ? 'var(--tb-textLight)' : 'rgba(var(--tb-textLight-rgb),0.85)',
           overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:500,
           transition:'color 0.15s',
         }}>{album.name}</p>
-        <p style={{ fontSize:10, color:'rgba(245,230,200,0.35)',
+        <p style={{ fontSize:10, color:'rgba(var(--tb-textLight-rgb),0.35)',
           overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
         }}>{album.artist} · {album.year}</p>
       </div>
@@ -563,15 +395,15 @@ function AlbumRow({ album, onPlay, onSelect }) {
           >
             <motion.button onClick={(e) => { e.stopPropagation(); onPlay(album.uri) }}
               className="no-drag"
-              style={{ background:'rgba(201,168,76,0.18)', border:'1px solid rgba(201,168,76,0.35)',
-                borderRadius:7, padding:'3px 10px', fontSize:11, color:'#F0C040', cursor:'pointer',
+              style={{ background:'rgba(var(--tb-primary-rgb),0.18)', border:'1px solid rgba(var(--tb-primary-rgb),0.35)',
+                borderRadius:7, padding:'3px 10px', fontSize:11, color:'var(--tb-accent)', cursor:'pointer',
               }}
               whileTap={{ scale:0.93 }}
             >▶</motion.button>
             <motion.button onClick={(e) => { e.stopPropagation(); onSelect && onSelect(album) }}
               className="no-drag"
               style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)',
-                borderRadius:7, padding:'3px 10px', fontSize:11, color:'rgba(245,230,200,0.55)', cursor:'pointer',
+                borderRadius:7, padding:'3px 10px', fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.55)', cursor:'pointer',
               }}
               whileTap={{ scale:0.93 }}
             >Ver →</motion.button>
@@ -590,7 +422,7 @@ function PlaylistRow({ playlist, onSelect, onPlay }) {
       className="no-drag"
       style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 10px',
         borderRadius:10, cursor:'pointer',
-        background: hov ? 'linear-gradient(90deg, rgba(201,168,76,0.1), rgba(201,168,76,0.05))' : 'transparent',
+        background: hov ? 'linear-gradient(90deg, rgba(var(--tb-primary-rgb),0.1), rgba(var(--tb-primary-rgb),0.05))' : 'transparent',
         transition:'background 0.15s',
         borderBottom:'1px solid rgba(255,255,255,0.02)',
       }}
@@ -599,21 +431,21 @@ function PlaylistRow({ playlist, onSelect, onPlay }) {
       {playlist.imageUrl
         ? <motion.img src={playlist.imageUrl} alt="" whileHover={{ scale:1.08 }}
             style={{ width:42, height:42, borderRadius:8, objectFit:'cover', flexShrink:0,
-              border:'1px solid rgba(201,168,76,0.25)',
-              boxShadow: hov ? '0 4px 16px rgba(201,168,76,0.3)' : 'none',
+              border:'1px solid rgba(var(--tb-primary-rgb),0.25)',
+              boxShadow: hov ? '0 4px 16px rgba(var(--tb-primary-rgb),0.3)' : 'none',
               transition:'box-shadow 0.2s',
             }}
           />
         : <div style={{ width:42, height:42, borderRadius:8, flexShrink:0,
-            background:'rgba(201,168,76,0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
+            background:'rgba(var(--tb-primary-rgb),0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
           }}>🎵</div>
       }
       <div style={{ flex:1, minWidth:0 }} onClick={() => onSelect(playlist)}>
-        <p style={{ fontSize:12, color: hov ? '#F5E6C8' : 'rgba(245,230,200,0.85)',
+        <p style={{ fontSize:12, color: hov ? 'var(--tb-textLight)' : 'rgba(var(--tb-textLight-rgb),0.85)',
           overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:500,
           transition:'color 0.15s',
         }}>{playlist.name}</p>
-        <p style={{ fontSize:10, color:'rgba(245,230,200,0.35)' }}>
+        <p style={{ fontSize:10, color:'rgba(var(--tb-textLight-rgb),0.35)' }}>
           {playlist.total > 0 ? `${playlist.total} canciones` : 'Ver canciones →'}
         </p>
       </div>
@@ -624,14 +456,14 @@ function PlaylistRow({ playlist, onSelect, onPlay }) {
           >
             <motion.button onClick={(e) => { e.stopPropagation(); onPlay(playlist.uri) }}
               className="no-drag"
-              style={{ background:'rgba(201,168,76,0.18)', border:'1px solid rgba(201,168,76,0.35)',
-                borderRadius:7, padding:'3px 10px', fontSize:11, color:'#F0C040', cursor:'pointer',
+              style={{ background:'rgba(var(--tb-primary-rgb),0.18)', border:'1px solid rgba(var(--tb-primary-rgb),0.35)',
+                borderRadius:7, padding:'3px 10px', fontSize:11, color:'var(--tb-accent)', cursor:'pointer',
               }}
               whileTap={{ scale:0.93 }}
             >▶ Play</motion.button>
             <motion.button onClick={() => onSelect(playlist)} className="no-drag"
               style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)',
-                borderRadius:7, padding:'3px 10px', fontSize:11, color:'rgba(245,230,200,0.55)', cursor:'pointer',
+                borderRadius:7, padding:'3px 10px', fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.55)', cursor:'pointer',
               }}
               whileTap={{ scale:0.93 }}
             >Ver →</motion.button>
@@ -647,26 +479,26 @@ function SearchInput({ value, onChange, placeholder='Buscar...' }) {
   return (
     <div style={{ position:'relative', marginBottom:10 }}>
       <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)',
-        fontSize:11, color:'rgba(201,168,76,0.5)', pointerEvents:'none',
+        fontSize:11, color:'rgba(var(--tb-primary-rgb),0.5)', pointerEvents:'none',
       }}>🔍</span>
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
         className="no-drag"
         style={{ width:'100%', boxSizing:'border-box',
           padding:'8px 36px 8px 32px',
           background:'rgba(255,255,255,0.04)',
-          border:'1px solid rgba(201,168,76,0.18)',
+          border:'1px solid rgba(var(--tb-primary-rgb),0.18)',
           borderRadius:10, outline:'none',
-          fontSize:12, color:'rgba(245,230,200,0.9)',
+          fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.9)',
           fontFamily:'inherit', transition:'border-color 0.2s',
         }}
-        onFocus={e => { e.target.style.borderColor='rgba(201,168,76,0.5)'; e.target.style.boxShadow='0 0 0 3px rgba(201,168,76,0.06)' }}
-        onBlur={e => { e.target.style.borderColor='rgba(201,168,76,0.18)'; e.target.style.boxShadow='none' }}
+        onFocus={e => { e.target.style.borderColor='rgba(var(--tb-primary-rgb),0.5)'; e.target.style.boxShadow='0 0 0 3px rgba(var(--tb-primary-rgb),0.06)' }}
+        onBlur={e => { e.target.style.borderColor='rgba(var(--tb-primary-rgb),0.18)'; e.target.style.boxShadow='none' }}
       />
       {value && (
         <button onClick={() => onChange('')} className="no-drag"
           style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
             background:'rgba(255,255,255,0.08)', border:'none', cursor:'pointer',
-            color:'rgba(245,230,200,0.5)', width:18, height:18, borderRadius:'50%',
+            color:'rgba(var(--tb-textLight-rgb),0.5)', width:18, height:18, borderRadius:'50%',
             display:'flex', alignItems:'center', justifyContent:'center', fontSize:10,
           }}
         >✕</button>
@@ -679,15 +511,15 @@ function SearchInput({ value, onChange, placeholder='Buscar...' }) {
 function Accordion({ title, defaultOpen=true, children, badge }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div style={{ border:'1px solid rgba(201,168,76,0.12)', borderRadius:14,
+    <div style={{ border:'1px solid rgba(var(--tb-primary-rgb),0.12)', borderRadius:14,
       background:'rgba(255,255,255,0.02)', overflow:'hidden',
       animation: open ? 'tb-border-glow 6s ease-in-out infinite' : undefined,
     }}>
       <motion.button onClick={() => setOpen(!open)} className="no-drag"
         style={{ width:'100%', display:'flex', alignItems:'center', gap:8,
           padding:'11px 16px', cursor:'pointer',
-          background: open ? 'linear-gradient(90deg, rgba(201,168,76,0.07), transparent)' : 'transparent',
-          border:'none', color:'rgba(201,168,76,0.8)', textAlign:'left',
+          background: open ? 'linear-gradient(90deg, rgba(var(--tb-primary-rgb),0.07), transparent)' : 'transparent',
+          border:'none', color:'rgba(var(--tb-primary-rgb),0.8)', textAlign:'left',
           transition:'background 0.2s',
         }}
         whileTap={{ scale:0.99 }}
@@ -700,9 +532,9 @@ function Accordion({ title, defaultOpen=true, children, badge }) {
         }}>{title}</span>
         {badge && (
           <motion.span initial={{ scale:0 }} animate={{ scale:1 }}
-            style={{ fontSize:10, background:'rgba(201,168,76,0.12)',
-              border:'1px solid rgba(201,168,76,0.25)', borderRadius:20,
-              padding:'1px 8px', color:'rgba(201,168,76,0.7)',
+            style={{ fontSize:10, background:'rgba(var(--tb-primary-rgb),0.12)',
+              border:'1px solid rgba(var(--tb-primary-rgb),0.25)', borderRadius:20,
+              padding:'1px 8px', color:'rgba(var(--tb-primary-rgb),0.7)',
             }}
           >{badge}</motion.span>
         )}
@@ -726,6 +558,9 @@ function Accordion({ title, defaultOpen=true, children, badge }) {
 
 // ─── Carrusel "Para Tupper" ───────────────────────────────────────────────────
 function TupperCarousel({ messages }) {
+  const { activeTheme } = useAppStore()
+  const theme = getTheme(activeTheme)
+  const Mascot = theme.Mascot
   const [idx, setIdx] = useState(0)
   const [dir, setDir] = useState(1)
 
@@ -738,19 +573,19 @@ function TupperCarousel({ messages }) {
 
   return (
     <motion.div
-      animate={{ boxShadow:['0 0 14px rgba(201,168,76,0.12)','0 0 32px rgba(201,168,76,0.3)','0 0 14px rgba(201,168,76,0.12)'] }}
+      animate={{ boxShadow:['0 0 14px rgba(var(--tb-primary-rgb),0.12)','0 0 32px rgba(var(--tb-primary-rgb),0.3)','0 0 14px rgba(var(--tb-primary-rgb),0.12)'] }}
       transition={{ duration:3.5, repeat:Infinity, ease:'easeInOut' }}
       style={{ borderRadius:16, padding:'18px 18px 15px', position:'relative', overflow:'hidden',
-        background:'linear-gradient(135deg, rgba(116,0,1,0.15), rgba(201,168,76,0.08), rgba(30,15,55,0.4))',
-        border:'1px solid rgba(201,168,76,0.25)', textAlign:'center',
+        background:'linear-gradient(135deg, rgba(var(--tb-secondary-rgb),0.15), rgba(var(--tb-primary-rgb),0.08), rgba(30,15,55,0.4))',
+        border:'1px solid rgba(var(--tb-primary-rgb),0.25)', textAlign:'center',
       }}
     >
-      {/* Castillo decorativo en el fondo del carrusel */}
+      {/* Mascota decorativa del tema en el fondo del carrusel */}
       <div style={{ position:'absolute', bottom:-10, right:-10, opacity:0.7, zIndex:0 }}>
-        <HogwardsCastle width={100} opacity={0.25} />
+        <Mascot width={100} opacity={0.25} />
       </div>
-      <p style={{ fontFamily:'"UnifrakturMaguntia", cursive', fontSize:22, color:'#C9A84C',
-        marginBottom:10, textShadow:'0 0 20px rgba(201,168,76,0.6)', position:'relative', zIndex:1,
+      <p style={{ fontFamily:'var(--tb-font-heading)', fontSize:22, color:'var(--tb-primary)',
+        marginBottom:10, textShadow:'0 0 20px rgba(var(--tb-primary-rgb),0.6)', position:'relative', zIndex:1,
       }}>Para Tupper</p>
       <AnimatePresence mode="wait">
         <motion.div key={idx} initial={{ opacity:0, x:28*dir }} animate={{ opacity:1, x:0 }}
@@ -758,10 +593,10 @@ function TupperCarousel({ messages }) {
           style={{ position:'relative', zIndex:1 }}
         >
           {msg.emoji && <p style={{ fontSize:20, marginBottom:8 }}>{msg.emoji}</p>}
-          <p style={{ fontSize:12, color:'rgba(245,230,200,0.7)', lineHeight:1.8,
+          <p style={{ fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.7)', lineHeight:1.8,
             fontStyle: msg.text.startsWith('"') ? 'italic' : 'normal',
           }}>{msg.text}</p>
-          {msg.from && <p style={{ marginTop:10, fontSize:11, color:'rgba(201,168,76,0.6)' }}>— {msg.from}</p>}
+          {msg.from && <p style={{ marginTop:10, fontSize:11, color:'rgba(var(--tb-primary-rgb),0.6)' }}>— {msg.from}</p>}
         </motion.div>
       </AnimatePresence>
       <div style={{ display:'flex', justifyContent:'center', gap:5, marginTop:12, position:'relative', zIndex:1 }}>
@@ -770,7 +605,7 @@ function TupperCarousel({ messages }) {
             className="no-drag"
             animate={{ width: i===idx ? 18 : 5 }}
             style={{ height:4, borderRadius:3,
-              background: i===idx ? '#C9A84C' : 'rgba(201,168,76,0.25)',
+              background: i===idx ? 'var(--tb-primary)' : 'rgba(var(--tb-primary-rgb),0.25)',
               border:'none', cursor:'pointer', padding:0,
             }}
           />
@@ -808,10 +643,10 @@ function PlaybackModeControls() {
       style={{ display:'flex', alignItems:'center', justifyContent:'center',
         padding:'6px 12px', borderRadius:10, cursor:'pointer', gap:6,
         fontSize:11, fontWeight:500, transition:'all 0.18s',
-        color: active ? '#F0C040' : 'rgba(245,230,200,0.35)',
-        background: active ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
-        border:`1px solid ${active ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.06)'}`,
-        boxShadow: active ? '0 0 12px rgba(201,168,76,0.15)' : 'none',
+        color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.35)',
+        background: active ? 'rgba(var(--tb-primary-rgb),0.12)' : 'rgba(255,255,255,0.03)',
+        border:`1px solid ${active ? 'rgba(var(--tb-primary-rgb),0.4)' : 'rgba(255,255,255,0.06)'}`,
+        boxShadow: active ? '0 0 12px rgba(var(--tb-primary-rgb),0.15)' : 'none',
       }}
       whileHover={{ scale:1.04 }} whileTap={{ scale:0.93 }}
     >{children}</motion.button>
@@ -835,12 +670,12 @@ function Spinner({ text }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'28px 0', gap:10 }}>
       <motion.div animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:1.2, ease:'linear' }}
-        style={{ width:22, height:22, border:'2px solid rgba(201,168,76,0.15)',
-          borderTopColor:'#C9A84C', borderRadius:'50%',
-          boxShadow:'0 0 10px rgba(201,168,76,0.2)',
+        style={{ width:22, height:22, border:'2px solid rgba(var(--tb-primary-rgb),0.15)',
+          borderTopColor:'var(--tb-primary)', borderRadius:'50%',
+          boxShadow:'0 0 10px rgba(var(--tb-primary-rgb),0.2)',
         }}
       />
-      {text && <p style={{ fontSize:11, color:'rgba(245,230,200,0.35)', fontStyle:'italic' }}>{text}</p>}
+      {text && <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.35)', fontStyle:'italic' }}>{text}</p>}
     </div>
   )
 }
@@ -848,43 +683,24 @@ function Spinner({ text }) {
 function Empty({ text }) {
   return (
     <div style={{ textAlign:'center', padding:'24px 0' }}>
-      <p style={{ fontSize:12, color:'rgba(245,230,200,0.28)', fontStyle:'italic' }}>✦ {text} ✦</p>
+      <p style={{ fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.28)', fontStyle:'italic' }}>✦ {text} ✦</p>
     </div>
   )
 }
 
 // ─── Sección Reproductor ──────────────────────────────────────────────────────
-// Cache de canciones — carga una sola vez vía IPC del main process (con getValidToken real)
-async function ipcLoadAllTracks(onProgress) {
-  const all = []
-  let offset = 0
-  let total = Infinity
-  while (offset < total) {
-    const res = await window.electronAPI?.getSavedTracks?.(offset)
-    if (!res?.items) break
-    total = res.total ?? total
-    const batch = res.items.filter(i => i.track).map(i => ({
-      uri: i.track.uri, name: i.track.name,
-      artist: i.track.artists.map(a => a.name).join(', '),
-      albumArt: i.track.album?.images?.[1]?.url || i.track.album?.images?.[0]?.url || '',
-      duration: i.track.duration_ms,
-    }))
-    all.push(...batch)
-    offset += res.items.length
-    if (onProgress) onProgress(all.length, total)
-    if (res.items.length < 50) break
-  }
-  return { tracks: all, total: total === Infinity ? all.length : total }
-}
+// La carga completa de "Me gusta" (paginación vía IPC) ahora vive en
+// src/lib/savedTracks.js — se comparte con el loader inicial de la app
+// (App.jsx), que precarga este cache ni bien arranca TupperBeats.
 
 function PlayerSection({ track }) {
-  const { playUri, playTrackInContext, playQueueIndex } = useSpotifyControls()
+  const { playUri, playTrackInContext, playQueueIndex, startLikedQueue } = useSpotifyControls()
 
   // Cache permanente desde Zustand
   const {
     savedTracksCache, savedTracksCacheTotal,
     savedTracksLoading, savedTracksProgress,
-    setSavedTracksCache, setSavedTracksLoading, setSavedTracksProgress, clearSavedTracksCache,
+    clearSavedTracksCache,
   } = useAppStore()
 
   const [tab, setTab] = useState('now')
@@ -933,24 +749,21 @@ function PlayerSection({ track }) {
   }, [tab, queue])
 
   // Auto-cargar todas las canciones cuando se entra al tab 'tracks'
-  // Solo si el cache está vacío y no está cargando
+  // Normalmente ya está lista (o en curso) gracias a la precarga del loader
+  // inicial de la app — esto es solo un respaldo por si esa precarga nunca
+  // se disparó (ej. login recién hecho en esta misma sesión).
   useEffect(() => {
     if (tab !== 'tracks') return
     if (savedTracksCache !== null) return // ya tenemos datos
-    if (tracksLoadingRef.current) return  // ya está cargando
     startLoadingAllTracks()
   }, [tab])
 
-  const startLoadingAllTracks = useCallback(async () => {
+  const startLoadingAllTracks = useCallback(() => {
     if (tracksLoadingRef.current) return
     tracksLoadingRef.current = true
-    setSavedTracksLoading(true)
-    setSavedTracksProgress({ loaded: 0, total: 0 })
-    const { tracks, total } = await ipcLoadAllTracks((loaded, t) => {
-      setSavedTracksProgress({ loaded, total: t })
+    ensureSavedTracksLoaded(useAppStore).finally(() => {
+      tracksLoadingRef.current = false
     })
-    setSavedTracksCache(tracks, total)
-    tracksLoadingRef.current = false
   }, [])
 
   const refreshTracks = useCallback(() => {
@@ -1078,6 +891,20 @@ function PlayerSection({ track }) {
     await playQueueIndex(queueIndex)
   }, [playQueueIndex])
 
+  // Tocar una canción DESDE "Mis canciones" activa el modo manual de cola
+  // local (ver useSpotifyControls.js): Siguiente/Anterior van a avanzar por
+  // esta lista sin tocar la cola real de Spotify. La primera versión de esto
+  // encolaba TODO "Me gusta" de una via /me/player/queue — eso terminaba
+  // rompiendo la cola real del dispositivo (dejaba de poder reproducir,
+  // saltar o adelantar nada) al llegar a cierta cantidad de canciones
+  // encoladas, así que ahora el avance es 1 por 1 y manejado por la app.
+  const handlePlayLiked = useCallback((uri) => {
+    if (!savedTracksCache) return
+    const startIdx = savedTracksCache.findIndex(t => t.uri === uri)
+    if (startIdx === -1) return
+    startLikedQueue(savedTracksCache.map(t => t.uri), startIdx)
+  }, [savedTracksCache, startLikedQueue])
+
   const filterByQuery = useCallback((items, fields=['name','artist']) => {
     if (!query.trim()) return items
     const q = query.toLowerCase()
@@ -1126,7 +953,7 @@ function PlayerSection({ track }) {
       {/* Tab bar */}
       <div style={{ display:'flex', gap:2, padding:'4px',
         background:'rgba(255,255,255,0.02)',
-        borderRadius:14, border:'1px solid rgba(201,168,76,0.1)',
+        borderRadius:14, border:'1px solid rgba(var(--tb-primary-rgb),0.1)',
       }}>
         {tabs.map(t => {
           const active = tab === t.id
@@ -1134,11 +961,11 @@ function PlayerSection({ track }) {
             <motion.button key={t.id} onClick={() => loadTab(t.id)} className="no-drag"
               style={{ flex:1, padding:'7px 4px', borderRadius:11,
                 fontSize:10, fontWeight: active ? 600 : 400,
-                color: active ? '#F0C040' : 'rgba(245,230,200,0.4)',
-                background: active ? 'rgba(201,168,76,0.13)' : 'transparent',
-                border:`1px solid ${active ? 'rgba(201,168,76,0.4)' : 'transparent'}`,
+                color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.4)',
+                background: active ? 'rgba(var(--tb-primary-rgb),0.13)' : 'transparent',
+                border:`1px solid ${active ? 'rgba(var(--tb-primary-rgb),0.4)' : 'transparent'}`,
                 cursor:'pointer', transition:'all 0.15s',
-                boxShadow: active ? '0 0 14px rgba(201,168,76,0.12)' : 'none',
+                boxShadow: active ? '0 0 14px rgba(var(--tb-primary-rgb),0.12)' : 'none',
               }}
               whileTap={{ scale:0.95 }}
             >
@@ -1159,8 +986,8 @@ function PlayerSection({ track }) {
                     transition={{ duration:4, repeat:Infinity }}
                     style={{ fontSize:32 }}
                   >🎵</motion.div>
-                  <p style={{ fontSize:13, color:'rgba(245,230,200,0.4)', fontFamily:'serif' }}>Sin reproducción activa</p>
-                  <p style={{ fontSize:11, color:'rgba(245,230,200,0.22)' }}>Abre Spotify y reproduce algo ✨</p>
+                  <p style={{ fontSize:13, color:'rgba(var(--tb-textLight-rgb),0.4)', fontFamily:'serif' }}>Sin reproducción activa</p>
+                  <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.22)' }}>Abre Spotify y reproduce algo ✨</p>
                 </div>
               : <>
                   <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:14 }}>
@@ -1170,26 +997,26 @@ function PlayerSection({ track }) {
                         animate={{ scale:1, opacity:1, rotate:0 }}
                         transition={{ type:'spring', stiffness:250, damping:20 }}
                         style={{ width:72, height:72, borderRadius:12, objectFit:'cover',
-                          border:'2px solid rgba(201,168,76,0.4)',
-                          boxShadow:'0 6px 24px rgba(0,0,0,0.5), 0 0 20px rgba(201,168,76,0.2)',
+                          border:'2px solid rgba(var(--tb-primary-rgb),0.4)',
+                          boxShadow:'0 6px 24px rgba(0,0,0,0.5), 0 0 20px rgba(var(--tb-primary-rgb),0.2)',
                         }}
                       />
                     </motion.div>
                     <div style={{ minWidth:0, flex:1 }}>
                       <motion.p key={"n-"+track.id}
                         initial={{ opacity:0, x:-10 }} animate={{ opacity:1, x:0 }}
-                        style={{ fontSize:14, fontWeight:700, color:'#F0C040',
+                        style={{ fontSize:14, fontWeight:700, color:'var(--tb-accent)',
                           overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-                          textShadow:'0 0 14px rgba(240,192,64,0.4)',
+                          textShadow:'0 0 14px rgba(var(--tb-accent-rgb),0.4)',
                         }}
                       >{track.name}</motion.p>
                       <motion.p key={"a-"+track.id}
                         initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ delay:0.07 }}
-                        style={{ fontSize:12, color:'rgba(245,230,200,0.55)', marginTop:3,
+                        style={{ fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.55)', marginTop:3,
                           overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
                         }}
                       >{track.artist}</motion.p>
-                      <p style={{ fontSize:11, color:'rgba(245,230,200,0.25)', marginTop:2,
+                      <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.25)', marginTop:2,
                         overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
                       }}>{track.album}</p>
                     </div>
@@ -1212,9 +1039,9 @@ function PlayerSection({ track }) {
                 style={{ width:'100%', boxSizing:'border-box',
                   padding:'9px 36px 9px 12px',
                   background:'rgba(255,255,255,0.04)',
-                  border:'1px solid rgba(201,168,76,0.2)',
+                  border:'1px solid rgba(var(--tb-primary-rgb),0.2)',
                   borderRadius:12, outline:'none',
-                  fontSize:12, color:'rgba(245,230,200,0.9)',
+                  fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.9)',
                   fontFamily:'inherit',
                 }}
               />
@@ -1223,7 +1050,7 @@ function PlayerSection({ track }) {
                   className="no-drag"
                   style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
                     background:'rgba(255,255,255,0.08)', border:'none', cursor:'pointer',
-                    color:'rgba(245,230,200,0.5)', width:20, height:20, borderRadius:'50%',
+                    color:'rgba(var(--tb-textLight-rgb),0.5)', width:20, height:20, borderRadius:'50%',
                     display:'flex', alignItems:'center', justifyContent:'center', fontSize:11,
                   }}
                 >✕</button>
@@ -1234,7 +1061,7 @@ function PlayerSection({ track }) {
               : searchError
                 ? <div style={{ textAlign:'center', padding:'16px 0' }}>
                     <p style={{ fontSize:12, color:'rgba(248,113,113,0.7)', marginBottom:6 }}>Error al buscar</p>
-                    <p style={{ fontSize:11, color:'rgba(245,230,200,0.25)' }}>Verifica tu conexión o reconecta Spotify</p>
+                    <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.25)' }}>Verifica tu conexión o reconecta Spotify</p>
                   </div>
                 : !searchResults
                   ? <Empty text="Escribe algo para buscar" />
@@ -1277,8 +1104,8 @@ function PlayerSection({ track }) {
               onClick={() => { setSelectedPlaylist(null); setPlaylistTracks(null); setPlaylistError(false); setQuery('') }}
               className="no-drag"
               style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12,
-                background:'rgba(201,168,76,0.08)', border:'1px solid rgba(201,168,76,0.2)',
-                borderRadius:8, padding:'5px 12px', fontSize:11, color:'rgba(245,230,200,0.6)', cursor:'pointer',
+                background:'rgba(var(--tb-primary-rgb),0.08)', border:'1px solid rgba(var(--tb-primary-rgb),0.2)',
+                borderRadius:8, padding:'5px 12px', fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.6)', cursor:'pointer',
               }}
               whileTap={{ scale:0.97 }}
             >← Volver</motion.button>
@@ -1292,7 +1119,7 @@ function PlayerSection({ track }) {
                 : !playlistTracks ? <Spinner text="Cargando canciones..." />
                 : playlistTracks.length === 0 ? <Empty text="Playlist vacía" />
                 : <>
-                    <p style={{ fontSize:11, color:'rgba(201,168,76,0.5)', marginBottom:8 }}>
+                    <p style={{ fontSize:11, color:'rgba(var(--tb-primary-rgb),0.5)', marginBottom:8 }}>
                       {playlistTracks.length} canciones
                     </p>
                     <SearchInput value={query} onChange={setQuery} placeholder="Buscar en playlist..." />
@@ -1333,15 +1160,15 @@ function PlayerSection({ track }) {
           {/* Header con botón actualizar */}
           {savedTracksCache && (
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-              <p style={{ fontSize:11, color:'rgba(201,168,76,0.4)' }}>
+              <p style={{ fontSize:11, color:'rgba(var(--tb-primary-rgb),0.4)' }}>
                 {savedTracksCache.length} canciones
               </p>
               <motion.button onClick={refreshTracks} className="no-drag"
                 title="Actualizar lista"
                 style={{ display:'flex', alignItems:'center', gap:5,
-                  background:'rgba(201,168,76,0.07)', border:'1px solid rgba(201,168,76,0.2)',
+                  background:'rgba(var(--tb-primary-rgb),0.07)', border:'1px solid rgba(var(--tb-primary-rgb),0.2)',
                   borderRadius:8, padding:'4px 10px', fontSize:11,
-                  color:'rgba(201,168,76,0.7)', cursor:'pointer',
+                  color:'rgba(var(--tb-primary-rgb),0.7)', cursor:'pointer',
                 }}
                 whileHover={{ scale:1.05 }} whileTap={{ scale:0.93 }}
               >
@@ -1359,16 +1186,16 @@ function PlayerSection({ track }) {
           {savedTracksLoading && (
             <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}
               style={{ marginBottom:12, padding:'10px 12px', borderRadius:10,
-                background:'rgba(201,168,76,0.06)', border:'1px solid rgba(201,168,76,0.15)',
+                background:'rgba(var(--tb-primary-rgb),0.06)', border:'1px solid rgba(var(--tb-primary-rgb),0.15)',
               }}
             >
               <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
                 <motion.div animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:1, ease:'linear' }}
-                  style={{ width:14, height:14, border:'2px solid rgba(201,168,76,0.2)',
-                    borderTopColor:'#C9A84C', borderRadius:'50%', flexShrink:0,
+                  style={{ width:14, height:14, border:'2px solid rgba(var(--tb-primary-rgb),0.2)',
+                    borderTopColor:'var(--tb-primary)', borderRadius:'50%', flexShrink:0,
                   }}
                 />
-                <p style={{ fontSize:11, color:'rgba(201,168,76,0.8)' }}>
+                <p style={{ fontSize:11, color:'rgba(var(--tb-primary-rgb),0.8)' }}>
                   {savedTracksProgress
                     ? ('Cargando ' + savedTracksProgress.loaded + ' de ' + savedTracksProgress.total + ' canciones...')
                     : 'Iniciando carga...'}
@@ -1377,7 +1204,7 @@ function PlayerSection({ track }) {
               {savedTracksProgress && savedTracksProgress.total > 0 && (
                 <div style={{ height:3, borderRadius:2, background:'rgba(255,255,255,0.06)', overflow:'hidden' }}>
                   <motion.div
-                    style={{ height:'100%', background:'linear-gradient(90deg, #C9A84C, #F0C040)', borderRadius:2 }}
+                    style={{ height:'100%', background:'linear-gradient(90deg, var(--tb-primary), var(--tb-accent))', borderRadius:2 }}
                     animate={{ width: Math.round((savedTracksProgress.loaded / savedTracksProgress.total) * 100) + '%' }}
                     transition={{ ease:'linear' }}
                   />
@@ -1394,7 +1221,7 @@ function PlayerSection({ track }) {
                 <SearchInput value={query} onChange={setQuery} placeholder="Buscar entre tus canciones..." />
                 <div style={{ maxHeight:340, overflowY:'auto' }}>
                   {filterByQuery(savedTracksCache).map((t,i) => (
-                    <TrackRow key={t.uri+i} track={t} index={i} onPlay={handlePlay} />
+                    <TrackRow key={t.uri+i} track={t} index={i} onPlay={(uri) => handlePlayLiked(uri)} />
                   ))}
                   {filterByQuery(savedTracksCache).length===0 && <Empty text={"Sin resultados para " + query} />}
                 </div>
@@ -1411,8 +1238,8 @@ function PlayerSection({ track }) {
               onClick={() => { setSelectedAlbum(null); setAlbumTracks(null); setQuery('') }}
               className="no-drag"
               style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12,
-                background:'rgba(201,168,76,0.08)', border:'1px solid rgba(201,168,76,0.2)',
-                borderRadius:8, padding:'5px 12px', fontSize:11, color:'rgba(245,230,200,0.6)', cursor:'pointer',
+                background:'rgba(var(--tb-primary-rgb),0.08)', border:'1px solid rgba(var(--tb-primary-rgb),0.2)',
+                borderRadius:8, padding:'5px 12px', fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.6)', cursor:'pointer',
               }}
               whileTap={{ scale:0.97 }}
             >← Volver</motion.button>
@@ -1467,7 +1294,7 @@ function PositionPicker({ value, onChange }) {
       {/* Mini-pantalla visual */}
       <div style={{ width:'100%', aspectRatio:'16/9', maxHeight:90,
         background:'rgba(0,0,0,0.3)', borderRadius:10,
-        border:'1px solid rgba(201,168,76,0.15)',
+        border:'1px solid rgba(var(--tb-primary-rgb),0.15)',
         position:'relative', marginBottom:10, overflow:'hidden',
       }}>
         {/* Grid de puntos de posición */}
@@ -1482,23 +1309,23 @@ function PositionPicker({ value, onChange }) {
                 top: isTop ? '12%' : undefined, bottom: !isTop ? '12%' : undefined,
                 left: isLeft ? '8%' : undefined, right: !isLeft ? '8%' : undefined,
                 width:36, height:22, borderRadius:5, cursor:'pointer',
-                background: active ? 'rgba(201,168,76,0.9)' : 'rgba(201,168,76,0.1)',
-                border:`1.5px solid ${active ? '#F0C040' : 'rgba(201,168,76,0.25)'}`,
-                boxShadow: active ? '0 0 12px rgba(201,168,76,0.6)' : 'none',
+                background: active ? 'rgba(var(--tb-primary-rgb),0.9)' : 'rgba(var(--tb-primary-rgb),0.1)',
+                border:`1.5px solid ${active ? 'var(--tb-accent)' : 'rgba(var(--tb-primary-rgb),0.25)'}`,
+                boxShadow: active ? '0 0 12px rgba(var(--tb-primary-rgb),0.6)' : 'none',
                 display:'flex', alignItems:'center', justifyContent:'center',
               }}
               whileHover={{ scale:1.08 }} whileTap={{ scale:0.93 }}
               title={p.label}
             >
               {active && <div style={{ width:6, height:6, borderRadius:1,
-                background:'#1a1a2e',
+                background:'var(--tb-bg)',
               }} />}
             </motion.button>
           )
         })}
         {/* Texto central */}
         <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <p style={{ fontSize:9, color:'rgba(201,168,76,0.25)', letterSpacing:1 }}>PANTALLA</p>
+          <p style={{ fontSize:9, color:'rgba(var(--tb-primary-rgb),0.25)', letterSpacing:1 }}>PANTALLA</p>
         </div>
       </div>
       {/* Botones de texto */}
@@ -1508,11 +1335,11 @@ function PositionPicker({ value, onChange }) {
           return (
             <motion.button key={p.id} onClick={() => onChange(p.id)} className="no-drag"
               style={{ padding:'7px 8px', fontSize:10, fontWeight: active ? 600 : 400,
-                color: active ? '#F0C040' : 'rgba(245,230,200,0.4)',
-                background: active ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.02)',
-                border:`1px solid ${active ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.05)'}`,
+                color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.4)',
+                background: active ? 'rgba(var(--tb-primary-rgb),0.12)' : 'rgba(255,255,255,0.02)',
+                border:`1px solid ${active ? 'rgba(var(--tb-primary-rgb),0.4)' : 'rgba(255,255,255,0.05)'}`,
                 borderRadius:8, cursor:'pointer', transition:'all 0.15s',
-                boxShadow: active ? '0 0 10px rgba(201,168,76,0.12)' : 'none',
+                boxShadow: active ? '0 0 10px rgba(var(--tb-primary-rgb),0.12)' : 'none',
               }}
               whileTap={{ scale:0.95 }}
             >{p.label}</motion.button>
@@ -1535,7 +1362,7 @@ function ScreenPicker({ value, onChange }) {
 
   if (displays.length <= 1) {
     return (
-      <p style={{ fontSize:11, color:'rgba(245,230,200,0.25)', fontStyle:'italic', textAlign:'center', padding:'8px 0' }}>
+      <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.25)', fontStyle:'italic', textAlign:'center', padding:'8px 0' }}>
         Solo hay una pantalla conectada
       </p>
     )
@@ -1548,35 +1375,35 @@ function ScreenPicker({ value, onChange }) {
         return (
           <motion.button key={d.index} onClick={() => onChange(d.index)} className="no-drag"
             style={{ flex:1, minWidth:80, padding:'10px 10px 8px',
-              background: active ? 'rgba(201,168,76,0.14)' : 'rgba(255,255,255,0.02)',
-              border:`1.5px solid ${active ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.06)'}`,
+              background: active ? 'rgba(var(--tb-primary-rgb),0.14)' : 'rgba(255,255,255,0.02)',
+              border:`1.5px solid ${active ? 'rgba(var(--tb-primary-rgb),0.5)' : 'rgba(255,255,255,0.06)'}`,
               borderRadius:12, cursor:'pointer', transition:'all 0.18s', textAlign:'center',
-              boxShadow: active ? '0 0 16px rgba(201,168,76,0.18)' : 'none',
+              boxShadow: active ? '0 0 16px rgba(var(--tb-primary-rgb),0.18)' : 'none',
             }}
             whileHover={{ scale:1.04 }} whileTap={{ scale:0.94 }}
           >
             {/* Ícono monitor */}
             <div style={{ margin:'0 auto 6px',
               width:36, height:24, borderRadius:4,
-              border:`2px solid ${active ? 'rgba(201,168,76,0.8)' : 'rgba(255,255,255,0.15)'}`,
-              background: active ? 'rgba(201,168,76,0.1)' : 'rgba(255,255,255,0.02)',
+              border:`2px solid ${active ? 'rgba(var(--tb-primary-rgb),0.8)' : 'rgba(255,255,255,0.15)'}`,
+              background: active ? 'rgba(var(--tb-primary-rgb),0.1)' : 'rgba(255,255,255,0.02)',
               position:'relative', display:'flex', alignItems:'center', justifyContent:'center',
             }}>
-              {active && <div style={{ width:8, height:8, borderRadius:2, background:'rgba(201,168,76,0.7)' }} />}
+              {active && <div style={{ width:8, height:8, borderRadius:2, background:'rgba(var(--tb-primary-rgb),0.7)' }} />}
               {/* Base del monitor */}
               <div style={{ position:'absolute', bottom:-6, left:'50%', transform:'translateX(-50%)',
-                width:14, height:4, background: active ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.1)',
+                width:14, height:4, background: active ? 'rgba(var(--tb-primary-rgb),0.5)' : 'rgba(255,255,255,0.1)',
                 borderRadius:'0 0 2px 2px',
               }} />
             </div>
             <p style={{ fontSize:10, fontWeight: active ? 600 : 400,
-              color: active ? '#F0C040' : 'rgba(245,230,200,0.4)',
+              color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.4)',
               marginBottom:2,
             }}>{d.label}</p>
             {d.primary && (
-              <p style={{ fontSize:9, color:'rgba(201,168,76,0.4)' }}>Principal</p>
+              <p style={{ fontSize:9, color:'rgba(var(--tb-primary-rgb),0.4)' }}>Principal</p>
             )}
-            <p style={{ fontSize:9, color:'rgba(245,230,200,0.2)', marginTop:1 }}>
+            <p style={{ fontSize:9, color:'rgba(var(--tb-textLight-rgb),0.2)', marginTop:1 }}>
               {d.width}×{d.height}
             </p>
           </motion.button>
@@ -1592,8 +1419,11 @@ function NotificationsSection() {
     notificationMode, setNotificationMode,
     notificationPosition, setNotificationPosition,
     notificationAutoHide, setNotificationAutoHide,
-    currentTrack,
+    currentTrack, activeTheme,
   } = useAppStore()
+  const theme = getTheme(activeTheme)
+  const Mascot = theme.Mascot
+  const ThemeNotification = theme.Notification
 
   const [notifScreen, setNotifScreenLocal] = useState(0)
 
@@ -1629,10 +1459,10 @@ function NotificationsSection() {
               <motion.button key={m.id} onClick={() => setNotificationMode(m.id)}
                 className="w-full flex items-center gap-3 rounded-xl text-left no-drag"
                 style={{ padding:'11px 14px',
-                  background: active ? 'rgba(201,168,76,0.08)' : 'rgba(255,255,255,0.02)',
-                  border:`1px solid ${active ? 'rgba(201,168,76,0.35)' : 'rgba(255,255,255,0.04)'}`,
+                  background: active ? 'rgba(var(--tb-primary-rgb),0.08)' : 'rgba(255,255,255,0.02)',
+                  border:`1px solid ${active ? 'rgba(var(--tb-primary-rgb),0.35)' : 'rgba(255,255,255,0.04)'}`,
                   transition:'all 0.18s',
-                  boxShadow: active ? '0 0 12px rgba(201,168,76,0.1)' : 'none',
+                  boxShadow: active ? '0 0 12px rgba(var(--tb-primary-rgb),0.1)' : 'none',
                 }}
                 whileHover={{ scale:1.01 }} whileTap={{ scale:0.98 }}
               >
@@ -1643,11 +1473,11 @@ function NotificationsSection() {
                   }}
                 />
                 <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ fontSize:13, fontWeight:500, color: active ? '#F0C040' : 'rgba(245,230,200,0.75)' }}>{m.label}</p>
-                  <p style={{ fontSize:11, color:'rgba(245,230,200,0.32)', marginTop:1 }}>{m.desc}</p>
+                  <p style={{ fontSize:13, fontWeight:500, color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.75)' }}>{m.label}</p>
+                  <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.32)', marginTop:1 }}>{m.desc}</p>
                 </div>
                 {active && <motion.div initial={{ scale:0 }} animate={{ scale:1 }}>
-                  <IconCheck size={14} style={{ color:'#F0C040' }} />
+                  <IconCheck size={14} style={{ color:'var(--tb-accent)' }} />
                 </motion.div>}
               </motion.button>
             )
@@ -1668,11 +1498,11 @@ function NotificationsSection() {
                 <motion.button key={o.value} onClick={() => setNotificationAutoHide(o.value)}
                   className="no-drag"
                   style={{ padding:'10px 8px', fontSize:12, fontWeight: active ? 600 : 400,
-                    color: active ? '#F0C040' : 'rgba(245,230,200,0.4)',
-                    background: active ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.02)',
-                    border:`1px solid ${active ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.05)'}`,
+                    color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.4)',
+                    background: active ? 'rgba(var(--tb-primary-rgb),0.12)' : 'rgba(255,255,255,0.02)',
+                    border:`1px solid ${active ? 'rgba(var(--tb-primary-rgb),0.4)' : 'rgba(255,255,255,0.05)'}`,
                     borderRadius:10, cursor:'pointer', transition:'all 0.15s',
-                    boxShadow: active ? '0 0 10px rgba(201,168,76,0.12)' : 'none',
+                    boxShadow: active ? '0 0 10px rgba(var(--tb-primary-rgb),0.12)' : 'none',
                   }}
                   whileTap={{ scale:0.94 }}
                 >{o.label}</motion.button>
@@ -1684,7 +1514,7 @@ function NotificationsSection() {
 
       {/* Selector de pantalla */}
       <Card title="Pantalla de notificación" icon={IconSettings}>
-        <p style={{ fontSize:11, color:'rgba(245,230,200,0.35)', marginBottom:12 }}>
+        <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.35)', marginBottom:12 }}>
           Elige en qué monitor aparecerá la notificación
         </p>
         <ScreenPicker value={notifScreen} onChange={handleScreenChange} />
@@ -1693,13 +1523,13 @@ function NotificationsSection() {
       {/* Preview */}
       {currentTrack && (
         <Card title="Preview de notificación">
-          {/* Castillo decorativo en preview */}
+          {/* Mascota decorativa del tema en preview */}
           <div style={{ position:'relative', height:130, borderRadius:10, overflow:'hidden' }}>
             <div style={{ position:'absolute', bottom:-8, right:-8, opacity:0.4, zIndex:0 }}>
-              <HogwardsCastle width={120} opacity={0.4} />
+              <Mascot width={120} opacity={0.4} />
             </div>
             <div style={{ position:'relative', zIndex:1, height:'100%' }}>
-              <HogwartsNotification track={currentTrack} isVisible={true} onClose={()=>{}} onExitComplete={()=>{}} />
+              <ThemeNotification track={currentTrack} isVisible={true} onClose={()=>{}} onExitComplete={()=>{}} />
             </div>
           </div>
         </Card>
@@ -1709,60 +1539,59 @@ function NotificationsSection() {
 }
 
 // ─── Sección: Temas ──────────────────────────────────────────────────────────
+// Cada tema nuevo registrado en src/themes/index.js aparece acá automáticamente
+// — no hace falta tocar esta sección para agregar uno.
 function ThemesSection() {
   const { activeTheme, setActiveTheme } = useAppStore()
-  const themes = [
-    { id:'hogwarts', name:'🏰 Hogwarts', desc:'Pergamino, magia y el Gran Comedor',
-      gradient:'linear-gradient(135deg, #2a1a08, #1a1a2e)', accent:'#C9A84C', available:true },
-    { id:'rosa',  name:'🌸 Rosa Girly',  desc:'Próximamente...',
-      gradient:'linear-gradient(135deg, #FFB6C1, #E6D7FF)', accent:'#9B5DE5', available:false },
-    { id:'dark',  name:'🌑 Dark Minimal', desc:'Próximamente...',
-      gradient:'linear-gradient(135deg, #111, #222)', accent:'#555', available:false },
-  ]
+  const themes = listThemes()
+  const current = getTheme(activeTheme)
+  const CurrentMascot = current.Mascot
 
   return (
     <div className="space-y-3">
-      {/* Castillo decorativo en temas */}
+      {/* Mascota decorativa del tema activo */}
       <div style={{ textAlign:'center', position:'relative', padding:'8px 0 0' }}>
         <div style={{ display:'inline-block', animation:'tb-float-castle 8s ease-in-out infinite' }}>
-          <HogwardsCastle width={180} opacity={0.22} />
+          <CurrentMascot width={180} opacity={0.22} />
         </div>
-        <p style={{ fontFamily:'"UnifrakturMaguntia", cursive', fontSize:14,
-          color:'rgba(201,168,76,0.5)', marginTop:-8, letterSpacing:2,
+        <p style={{ fontFamily:'var(--tb-font-heading)', fontSize:14,
+          color:'rgba(var(--tb-primary-rgb),0.5)', marginTop:-8, letterSpacing:2,
         }}>Elige tu tema</p>
       </div>
 
       <Card title="Tema de la app" icon={IconPalette}>
         <div className="space-y-2">
           {themes.map(t => {
-            const active = activeTheme === t.id
+            const active = activeTheme === t.data.id
+            const available = t.available !== false
             return (
-              <motion.button key={t.id} onClick={() => t.available && setActiveTheme(t.id)}
-                disabled={!t.available}
+              <motion.button key={t.data.id} onClick={() => available && setActiveTheme(t.data.id)}
+                disabled={!available}
                 className="w-full flex items-center gap-3 rounded-2xl no-drag"
                 style={{ padding:'12px 14px', textAlign:'left',
-                  background: active ? 'rgba(201,168,76,0.08)' : 'rgba(255,255,255,0.02)',
-                  border:`1.5px solid ${active ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.05)'}`,
-                  opacity: t.available ? 1 : 0.4,
-                  cursor: t.available ? 'pointer' : 'not-allowed',
+                  background: active ? `rgba(${t.data.colors.primaryRgb},0.08)` : 'rgba(255,255,255,0.02)',
+                  border:`1.5px solid ${active ? `rgba(${t.data.colors.primaryRgb},0.4)` : 'rgba(255,255,255,0.05)'}`,
+                  opacity: available ? 1 : 0.4,
+                  cursor: available ? 'pointer' : 'not-allowed',
                   transition:'all 0.18s',
-                  boxShadow: active ? '0 0 20px rgba(201,168,76,0.15)' : 'none',
+                  boxShadow: active ? `0 0 20px rgba(${t.data.colors.primaryRgb},0.15)` : 'none',
                 }}
-                whileTap={t.available ? { scale:0.98 } : {}}
-                whileHover={t.available ? { scale:1.01 } : {}}
+                whileTap={available ? { scale:0.98 } : {}}
+                whileHover={available ? { scale:1.01 } : {}}
               >
                 <div style={{ width:50, height:50, borderRadius:12, flexShrink:0,
-                  background:t.gradient, border:`2px solid ${t.accent}55`,
-                  boxShadow: active ? `0 4px 16px ${t.accent}33` : 'none',
-                }} />
+                  background:t.data.gradients.app, border:`2px solid rgba(${t.data.colors.primaryRgb},0.35)`,
+                  boxShadow: active ? `0 4px 16px rgba(${t.data.colors.primaryRgb},0.2)` : 'none',
+                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
+                }}>{t.data.emoji}</div>
                 <div style={{ flex:1 }}>
                   <p style={{ fontSize:13, fontWeight:500,
-                    color: active ? '#F0C040' : 'rgba(245,230,200,0.8)',
-                  }}>{t.name}</p>
-                  <p style={{ fontSize:11, color:'rgba(245,230,200,0.32)', marginTop:2 }}>{t.desc}</p>
+                    color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.8)',
+                  }}>{t.data.emoji} {t.data.name}</p>
+                  <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.32)', marginTop:2 }}>{available ? t.data.description : 'Próximamente...'}</p>
                 </div>
                 {active && <motion.div initial={{ scale:0, rotate:-20 }} animate={{ scale:1, rotate:0 }}>
-                  <IconCheck size={15} style={{ color:'#F0C040' }} />
+                  <IconCheck size={15} style={{ color:'var(--tb-accent)' }} />
                 </motion.div>}
               </motion.button>
             )
@@ -1795,8 +1624,8 @@ function AppSection({ onLogout }) {
   const installNow = () => window.electronAPI?.installUpdateNow?.()
 
   const statusConfig = {
-    idle:         { label:'Buscar actualizaciones',                          color:'rgba(245,230,200,0.5)',  spin:false },
-    checking:     { label:'Verificando...',                                  color:'rgba(201,168,76,0.7)',   spin:true  },
+    idle:         { label:'Buscar actualizaciones',                          color:'rgba(var(--tb-textLight-rgb),0.5)',  spin:false },
+    checking:     { label:'Verificando...',                                  color:'rgba(var(--tb-primary-rgb),0.7)',   spin:true  },
     'up-to-date': { label:'✨ Estás al día',                                 color:'#4ade80',                spin:false },
     available:    { label:`⬇ Nueva versión: ${updateInfo?.version ?? ''}`,  color:'#fbbf24',                spin:false },
     downloading:  { label:`Descargando ${updateInfo?.percent ?? 0}%...`,    color:'#60a5fa',                spin:true  },
@@ -1814,8 +1643,8 @@ function AppSection({ onLogout }) {
           <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
             padding:'9px 0', borderBottom:'1px solid rgba(255,255,255,0.03)',
           }}>
-            <span style={{ fontSize:12, color:'rgba(245,230,200,0.32)' }}>{k}</span>
-            <span style={{ fontSize:12, color:'rgba(245,230,200,0.72)', fontWeight:500 }}>{v}</span>
+            <span style={{ fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.32)' }}>{k}</span>
+            <span style={{ fontSize:12, color:'rgba(var(--tb-textLight-rgb),0.72)', fontWeight:500 }}>{v}</span>
           </div>
         ))}
       </Card>
@@ -1860,7 +1689,7 @@ function AppSection({ onLogout }) {
             { label:'Desconectar Spotify', icon:IconLogout,  onClick:onLogout,
               style:{ color:'#f87171', border:'rgba(248,113,113,0.2)', bg:'rgba(248,113,113,0.06)' } },
             { label:'Minimizar al tray',  icon:IconMinimize, onClick:()=>window.electronAPI?.close(),
-              style:{ color:'rgba(245,230,200,0.4)', border:'rgba(255,255,255,0.07)', bg:'rgba(255,255,255,0.03)' } },
+              style:{ color:'rgba(var(--tb-textLight-rgb),0.4)', border:'rgba(255,255,255,0.07)', bg:'rgba(255,255,255,0.03)' } },
             { label:'Cerrar completamente', icon:IconPower, onClick:()=>window.electronAPI?.quitApp(),
               style:{ color:'rgba(248,113,113,0.6)', border:'rgba(248,113,113,0.15)', bg:'rgba(248,113,113,0.04)' } },
           ].map(({ label, icon:Icon, onClick, style:s }) => (
@@ -1895,8 +1724,8 @@ function BottomPlayerBar({ track }) {
       animate={{ height: track ? 66 : 46 }}
       transition={{ duration:0.3, ease:'easeInOut' }}
       style={{ flexShrink:0, position:'relative', zIndex:10,
-        background:'linear-gradient(180deg, rgba(8,4,20,0.97), rgba(4,2,10,0.99))',
-        borderTop:'1px solid rgba(201,168,76,0.18)',
+        background:'var(--tb-gradient-bottombar)',
+        borderTop:'1px solid rgba(var(--tb-primary-rgb),0.18)',
         display:'flex', alignItems:'center',
         padding:'0 16px', gap:12,
         overflow:'hidden',
@@ -1904,10 +1733,10 @@ function BottomPlayerBar({ track }) {
     >
       {/* Línea dorada */}
       <div style={{ position:'absolute', top:0, left:0, right:0, height:1,
-        background:'linear-gradient(90deg, transparent, rgba(201,168,76,0.5) 30%, rgba(240,192,64,0.7) 50%, rgba(201,168,76,0.5) 70%, transparent)',
+        background:'linear-gradient(90deg, transparent, rgba(var(--tb-primary-rgb),0.5) 30%, rgba(var(--tb-accent-rgb),0.7) 50%, rgba(var(--tb-primary-rgb),0.5) 70%, transparent)',
       }} />
       {!track ? (
-        <p style={{ fontSize:11, color:'rgba(245,230,200,0.18)', width:'100%',
+        <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.18)', width:'100%',
           textAlign:'center', fontStyle:'italic', fontFamily:'serif',
         }}>✦ Sin reproducción activa ✦</p>
       ) : (
@@ -1916,19 +1745,19 @@ function BottomPlayerBar({ track }) {
             initial={{ scale:0.7, opacity:0 }} animate={{ scale:1, opacity:1 }}
             transition={{ type:'spring', stiffness:280, damping:22 }}
             style={{ width:40, height:40, borderRadius:8, objectFit:'cover', flexShrink:0,
-              border:'1.5px solid rgba(201,168,76,0.4)',
-              boxShadow:'0 0 14px rgba(201,168,76,0.25)',
+              border:'1.5px solid rgba(var(--tb-primary-rgb),0.4)',
+              boxShadow:'0 0 14px rgba(var(--tb-primary-rgb),0.25)',
             }}
           />
           <div style={{ minWidth:0, width:120, flexShrink:0 }}>
             <motion.p key={`bn-${track.id}`} initial={{ opacity:0, y:5 }} animate={{ opacity:1, y:0 }}
-              style={{ fontSize:12, fontWeight:700, color:'#F0C040',
+              style={{ fontSize:12, fontWeight:700, color:'var(--tb-accent)',
                 overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-                textShadow:'0 0 10px rgba(240,192,64,0.4)',
+                textShadow:'0 0 10px rgba(var(--tb-accent-rgb),0.4)',
               }}
             >{track.name}</motion.p>
             <motion.p key={`ba-${track.id}`} initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ delay:0.07 }}
-              style={{ fontSize:10, color:'rgba(245,230,200,0.38)',
+              style={{ fontSize:10, color:'rgba(var(--tb-textLight-rgb),0.38)',
                 overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1,
               }}
             >{track.artist}</motion.p>
@@ -1951,7 +1780,10 @@ function BottomPlayerBar({ track }) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function Settings() {
   const [section, setSection] = useState('player')
-  const { currentTrack, setAuthenticated } = useAppStore()
+  const { currentTrack, setAuthenticated, activeTheme } = useAppStore()
+  const theme = getTheme(activeTheme)
+  const ThemeBackground = theme.Background
+  const SidebarBadge = theme.SidebarBadge
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1975,32 +1807,22 @@ export default function Settings() {
 
   return (
     <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column',
-      background:'linear-gradient(160deg, #06030f 0%, #0d0920 40%, #080614 100%)',
+      background:'var(--tb-gradient-app)',
       position:'relative', overflow:'hidden',
     }}>
-      <AppBackground />
+      <ThemeBackground />
       <TitleBar />
 
       <div style={{ flex:1, display:'flex', overflow:'hidden', position:'relative', zIndex:1 }}>
         {/* Sidebar */}
         <div style={{ width:180, flexShrink:0, display:'flex', flexDirection:'column',
           padding:'12px 8px', gap:3,
-          background:'rgba(6,3,15,0.75)',
-          borderRight:'1px solid rgba(201,168,76,0.1)',
+          background:'var(--tb-gradient-sidebar)',
+          borderRight:'1px solid rgba(var(--tb-primary-rgb),0.1)',
           overflowY:'auto', backdropFilter:'blur(12px)',
         }}>
-          {/* Badge HP */}
-          <div style={{ textAlign:'center', padding:'4px 0 14px',
-            borderBottom:'1px solid rgba(201,168,76,0.1)', marginBottom:8,
-          }}>
-            <motion.div animate={{ y:[0,-2,0] }} transition={{ duration:3, repeat:Infinity, ease:'easeInOut' }}>
-              <HogwardsCastle width={130} opacity={1} />
-            </motion.div>
-            <p style={{ fontFamily:'"UnifrakturMaguntia", cursive', fontSize:13,
-              color:'rgba(201,168,76,0.6)', letterSpacing:1, marginTop:-4,
-              textShadow:'0 0 12px rgba(201,168,76,0.3)',
-            }}>Hogwarts</p>
-          </div>
+          {/* Insignia del tema activo */}
+          <SidebarBadge />
 
           {NAV.map(({ id, label, Icon }) => {
             const active = section === id
@@ -2008,22 +1830,22 @@ export default function Settings() {
               <motion.button key={id} onClick={() => setSection(id)}
                 className="flex items-center gap-2.5 rounded-xl no-drag"
                 style={{ padding:'10px 14px', textAlign:'left',
-                  background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
-                  border:`1px solid ${active ? 'rgba(201,168,76,0.3)' : 'transparent'}`,
-                  color: active ? '#F0C040' : 'rgba(245,230,200,0.42)',
+                  background: active ? 'rgba(var(--tb-primary-rgb),0.12)' : 'transparent',
+                  border:`1px solid ${active ? 'rgba(var(--tb-primary-rgb),0.3)' : 'transparent'}`,
+                  color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.42)',
                   fontSize:13, fontWeight: active ? 600 : 400,
                   transition:'all 0.18s', cursor:'pointer',
-                  boxShadow: active ? '0 0 16px rgba(201,168,76,0.1)' : 'none',
+                  boxShadow: active ? '0 0 16px rgba(var(--tb-primary-rgb),0.1)' : 'none',
                 }}
-                whileHover={{ color: active ? '#F0C040' : 'rgba(245,230,200,0.82)', x: active ? 0 : 2 }}
+                whileHover={{ color: active ? 'var(--tb-accent)' : 'rgba(var(--tb-textLight-rgb),0.82)', x: active ? 0 : 2 }}
                 whileTap={{ scale:0.97 }}
               >
                 <Icon size={14} />
                 <span style={{ flex:1 }}>{label}</span>
                 {active && (
                   <motion.div layoutId="nav-indicator"
-                    style={{ width:4, height:4, borderRadius:'50%', background:'#F0C040',
-                      boxShadow:'0 0 8px #F0C040',
+                    style={{ width:4, height:4, borderRadius:'50%', background:'var(--tb-accent)',
+                      boxShadow:'0 0 8px var(--tb-accent)',
                     }}
                   />
                 )}
@@ -2035,22 +1857,22 @@ export default function Settings() {
           {currentTrack && (
             <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}
               style={{ marginTop:'auto', paddingTop:12,
-                borderTop:'1px solid rgba(201,168,76,0.08)',
+                borderTop:'1px solid rgba(var(--tb-primary-rgb),0.08)',
               }}
             >
               <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 6px' }}>
                 <motion.img src={currentTrack.albumArt} alt=""
-                  animate={{ boxShadow:['0 0 6px rgba(201,168,76,0.15)','0 0 14px rgba(201,168,76,0.35)','0 0 6px rgba(201,168,76,0.15)'] }}
+                  animate={{ boxShadow:['0 0 6px rgba(var(--tb-primary-rgb),0.15)','0 0 14px rgba(var(--tb-primary-rgb),0.35)','0 0 6px rgba(var(--tb-primary-rgb),0.15)'] }}
                   transition={{ duration:3, repeat:Infinity }}
                   style={{ width:32, height:32, borderRadius:7, objectFit:'cover',
-                    flexShrink:0, border:'1px solid rgba(201,168,76,0.3)',
+                    flexShrink:0, border:'1px solid rgba(var(--tb-primary-rgb),0.3)',
                   }}
                 />
                 <div style={{ minWidth:0 }}>
-                  <p style={{ fontSize:11, color:'rgba(245,230,200,0.72)',
+                  <p style={{ fontSize:11, color:'rgba(var(--tb-textLight-rgb),0.72)',
                     overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:500,
                   }}>{currentTrack.name}</p>
-                  <p style={{ fontSize:9, color:'rgba(245,230,200,0.3)',
+                  <p style={{ fontSize:9, color:'rgba(var(--tb-textLight-rgb),0.3)',
                     overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
                   }}>{currentTrack.artist}</p>
                 </div>

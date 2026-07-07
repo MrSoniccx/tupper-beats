@@ -9,7 +9,7 @@ function formatTime(ms) {
 }
 
 // Thumb posicionado correctamente: wrapper fijo + inner escalable
-function SliderThumb({ pct, isDragging, color = '#F0C040' }) {
+function SliderThumb({ pct, isDragging, color = 'var(--tb-accent)' }) {
   return (
     <div
       style={{
@@ -75,8 +75,8 @@ export default function ProgressBar({ variant = 'default', className = '' }) {
 
   const trackH    = variant === 'wand' ? 6  : 4
   const fillColor = variant === 'wand'
-    ? 'linear-gradient(90deg, #740001, #C9A84C, #F0C040)'
-    : 'linear-gradient(90deg, #C9A84C, #F0C040)'
+    ? 'linear-gradient(90deg, var(--tb-secondary), var(--tb-primary), var(--tb-accent))'
+    : 'linear-gradient(90deg, var(--tb-primary), var(--tb-accent))'
 
   return (
     <div className={className}>
@@ -104,7 +104,7 @@ export default function ProgressBar({ variant = 'default', className = '' }) {
         <SliderThumb pct={pct} isDragging={dragging} />
       </div>
 
-      <div className="flex justify-between mt-1" style={{ fontSize: 10, color: 'rgba(245,230,200,0.4)' }}>
+      <div className="flex justify-between mt-1" style={{ fontSize: 10, color: 'rgba(var(--tb-textLight-rgb),0.4)' }}>
         <span>{formatTime((pct / 100) * duration)}</span>
         <span>{formatTime(duration)}</span>
       </div>
