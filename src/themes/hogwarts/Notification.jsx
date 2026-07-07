@@ -7,6 +7,7 @@ import { IconClose, IconShuffle, IconRepeatContext, IconRepeatOne, IconQueueAdd,
 import useAppStore from '../../store/useAppStore'
 import { useSpotifyControls } from '../../components/useSpotifyControls'
 import { useSpotifySearch } from '../../hooks/useSpotifySearch'
+import { Mascot } from './Background'
 import {
   fetchPlayerState, setShuffle as apiSetShuffle, setRepeat as apiSetRepeat,
   fetchQueue, addToQueue as apiAddToQueue, fetchSavedTracks,
@@ -60,6 +61,28 @@ const GLOBAL_CSS = `
   50%  { opacity: 0.6; }
   100% { transform: rotate(360deg) scale(1.05); opacity: 0.3; }
 }
+@keyframes hw-sonar-ring {
+  0%   { transform: scale(0.9); opacity: 0.5; }
+  70%  { opacity: 0; }
+  100% { transform: scale(2.3); opacity: 0; }
+}
+@keyframes hw-bat-fly-card {
+  0%   { transform: translateX(-22px) translateY(0px); opacity: 0; }
+  10%  { opacity: 0.5; }
+  90%  { opacity: 0.45; }
+  100% { transform: translateX(calc(100% + 22px)) translateY(-14px); opacity: 0; }
+}
+@keyframes hw-bat-flap-card {
+  0%,100% { transform: scaleY(1); }
+  50%     { transform: scaleY(0.5); }
+}
+@keyframes hw-shimmer-loop {
+  0%   { transform: translateX(-140%) skewX(-14deg); opacity: 0; }
+  8%   { opacity: 0.45; }
+  35%  { opacity: 0.45; }
+  50%  { transform: translateX(340%) skewX(-14deg); opacity: 0; }
+  100% { transform: translateX(340%) skewX(-14deg); opacity: 0; }
+}
 `
 
 const SPARKS = [
@@ -78,24 +101,38 @@ const SPARKS = [
 ]
 
 // ─── Castillo de Hogwarts miniatura ─────────────────────────────────────────
+// Ahora usa el <Mascot /> interactivo de Background.jsx — clickearlo lanza
+// un hechizo (temblor + brillo + chispas doradas), igual que en el sidebar
+// y el selector de temas.
 function MiniCastle({ opacity = 0.18, width = 90 }) {
-  // hogwarts-transparent.svg ya no tiene el rect de fondo blanco
-  // sepia+hue-rotate convierte el negro del castillo en dorado
+  return <Mascot width={width} opacity={1} />
+}
+
+// Murciélago miniatura cruzando la tarjeta de notificación
+function BatMini({ top, dur, delay, scale = 1 }) {
   return (
-    <img
-      src="./assets/hogwarts-transparent.svg"
-      width={width}
-      height={width}
-      alt=""
-      draggable={false}
-      style={{
-          pointerEvents: 'none',
-          opacity: 1,
-          filter: 'sepia(1) hue-rotate(5deg) saturate(4) brightness(4.5)',
-          objectFit: 'contain',
-          display: 'block',
-        }}
-    />
+    <div style={{
+      position: 'absolute', top, left: 0, zIndex: 1, pointerEvents: 'none',
+      animation: `hw-bat-fly-card ${dur}s ${delay}s linear infinite`,
+      transform: `scale(${scale})`,
+    }}>
+      <svg width="18" height="10" viewBox="0 0 22 12" style={{ animation: 'hw-bat-flap-card 0.4s ease-in-out infinite' }}>
+        <path d="M11 6 C8 0, 2 0, 0 4 C4 4, 7 5, 9 7 C7 5, 5 8, 2 9 C6 9, 9 8, 11 6 Z" fill="rgba(20,10,25,0.75)" />
+        <path d="M11 6 C14 0, 20 0, 22 4 C18 4, 15 5, 13 7 C15 5, 17 8, 20 9 C16 9, 13 8, 11 6 Z" fill="rgba(20,10,25,0.75)" />
+      </svg>
+    </div>
+  )
+}
+
+// Anillo de "sonar" mágico — pulsa desde el medallón, como una onda de eco
+function SonarRing() {
+  return (
+    <div style={{
+      position: 'absolute', inset: -5, borderRadius: '50%',
+      border: '1.5px solid rgba(240,192,64,0.55)',
+      pointerEvents: 'none',
+      animation: 'hw-sonar-ring 3.2s ease-out infinite',
+    }} />
   )
 }
 function Spark({ s }) {
@@ -193,6 +230,7 @@ function Corner({ pos, rotate = '0deg', isHovered }) {
 function AlbumMedallion({ src }) {
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
+      <SonarRing />
       {/* Anillo exterior pulsante */}
       <div style={{
         position: 'absolute', inset: -5,
@@ -668,6 +706,17 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
                 {/* Partículas / chispas mágicas */}
                 {SPARKS.map(s => <Spark key={s.id} s={s} />)}
 
+                {/* Murciélagos cruzando la tarjeta */}
+                <BatMini top="24%" dur={10} delay={1}  scale={0.75} />
+                <BatMini top="66%" dur={13} delay={5}  scale={0.6}  />
+
+                {/* Brillo de vidrio recorriendo la tarjeta en loop, sutil */}
+                <div style={{
+                  position: 'absolute', top: 0, bottom: 0, width: '30%', zIndex: 1, pointerEvents: 'none',
+                  background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent)',
+                  animation: 'hw-shimmer-loop 7.5s ease-in-out infinite',
+                }} />
+
                 {/* Estrellas del cielo */}
                 {STARS.map(s => (
                   <div key={s.id} style={{
@@ -781,10 +830,10 @@ export default function HogwartsNotification({ track, isVisible, onClose, onExit
                   />
                 )}
 
-                {/* ── Castillo de Hogwarts decorativo ── */}
-                <div style={{
-                  position: 'absolute', top: 10, right: 20, zIndex: 5,
-                  pointerEvents: 'none', opacity: 0.7,
+                {/* ── Castillo de Hogwarts decorativo — clickeable, lanza un hechizo ── */}
+                <div className="no-drag" style={{
+                  position: 'absolute', top: 10, right: 20, zIndex: 25,
+                  pointerEvents: 'auto', opacity: 0.7,
                 }}>
                   <MiniCastle width={88} opacity={0.28} />
                 </div>
